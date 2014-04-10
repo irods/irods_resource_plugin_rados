@@ -1,0 +1,3 @@
+PLUGINVERSION=0.9
+PLUGINVERSIONINT=1
+PLUGINNAME="irods_resource_plugin_rados"

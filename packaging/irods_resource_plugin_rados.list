@@ -1,0 +1,28 @@
+%product Ceph rados Resource Plugin for iRODS
+%copyright 2014 by Johannes-Gutenberg University Mainz, All Rights Reserved
+%vendor Zentrum für Datenverarbeitung / Matthias Grawinkel <grawinkel@uni-mainz.de>
+%license LICENSE
+%readme README
+%description Ceph rados Resource Plugin for iRODS
+%version 0.9 1
+
+%requires irods
+
+%format all
+%if ARCH
+%else
+%requires python
+%endif
+
+# =-=-=-=-=-=-=-
+# variables for configuring the install
+# =-=-=-=-=-=-=-
+$OS_IRODS_ACCT=irods
+$OS_IRODS_HOME_DIR=/var/lib/irods
+
+# =-=-=-=-=-=-=-
+# full file listing
+# =-=-=-=-=-=-=-
+
+f 644 $OS_IRODS_ACCT $OS_IRODS_ACCT ${OS_IRODS_HOME_DIR}/plugins/resources/libirados.so ./libirados.so
+#f 644 $OS_IRODS_ACCT $OS_IRODS_ACCT ${OS_IRODS_HOME_DIR}/tests/pydevtest/test_irods_resource_plugin_s3.py ./packaging/test_irods_resource_plugin_s3.py
