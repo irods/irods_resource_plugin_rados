@@ -994,7 +994,7 @@ irods::resource* plugin_factory(const std::string& _inst_name,
 	resc->set_property<int>(irods::RESOURCE_CREATE_PATH, 1);    //CREATE_PATH );
 
     #ifdef IRADOS_DEBUG
-        srand(time(NULL)) 
+        srand(time(NULL)); 
         int instance_id = rand() % 100000;
         resc->set_property<int>("instance_id", instance_id);
         rodsLog( LOG_NOTICE, "IRADOS_DEBUG Plugin created with instance_id: %d", instance_id);
