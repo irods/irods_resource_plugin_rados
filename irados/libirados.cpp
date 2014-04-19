@@ -86,7 +86,7 @@ const char user_name[] = "client.irods";
 boost::mutex rados_guard_;
 
 bool rados_initialized_ = false;
-librados::Rados* rados_cluster_ = NULL;
+static librados::Rados* rados_cluster_ = NULL;
 
 std::string rand_uuid_string() 
 {
@@ -102,15 +102,18 @@ std::string rand_uuid_string()
 bool connect_rados_cluster() {
 	if (rados_initialized_) {
 
-#ifdef IRADOS_DEBUG
-		rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s Reusing rados cluster connection", __func__);
-#endif
+        #ifdef IRADOS_DEBUG
+        	rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s Reusing rados cluster connection", __func__);
+        #endif
 		return true;
 	}
 
     rados_guard_.lock();
 	if (rados_initialized_) {
         rados_guard_.unlock();
+        #ifdef IRADOS_DEBUG
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s Reusing rados cluster connection", __func__);
+        #endif
 		return true;
 	}
 
@@ -160,6 +163,13 @@ bool connect_rados_cluster() {
     error:
         rados_guard_.unlock();
         return false;
+}
+
+int get_next_fd(irods::resource_plugin_context& _ctx) {
+    int fd = 0;
+    _ctx.prop_map().get < int > ("fd", fd);
+    _ctx.prop_map().set< int >("fd", (fd + 1));
+    return fd;
 }
 
 
@@ -280,26 +290,36 @@ extern "C" {
         if ( ( result = ASSERT_PASS( ret, "Error determining freespace on system." ) ).ok() ) {
             rodsLong_t file_size = fop->size();
             if ( ( result = ASSERT_ERROR( file_size < 0 || ret.code() >= file_size, USER_FILE_TOO_LARGE, "File size: %ld is greater than space left on device: %ld", file_size, ret.code() ) ).ok() ) {
-                fop->physical_path(oid);
+                // fop->physical_path(oid);
             }
         }
+
+        // fop->physical_path(oid);
+
+        int fd = get_next_fd(_ctx);
+        fop->file_descriptor(fd);
         
+        // creates and sets an initial seek ptr.
+        _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, 0);
+
+
         #ifdef IRADOS_DEBUG
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s created: %s - %d", __func__, oid.c_str(), instance_id);
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s created: %s - (instance: %d, fd: %d)", __func__, oid.c_str(), instance_id, fd);
         #endif
 
-        librados::IoCtx* io_ctx;
         
         if (not connect_rados_cluster()) {
             rodsLog( LOG_ERROR, "irados: cannot connect to cluster.");
             result.code(PLUGIN_ERROR);
             return result;
         }
-        rodsLog( LOG_NOTICE, "XXXXX-before ioctx create - initialized: %d", rados_initialized_);
+
+        assert(rados_cluster_ != NULL);
+
+        librados::IoCtx* io_ctx = new librados::IoCtx();
         int status = rados_cluster_->ioctx_create(pool_name, *io_ctx);
-        rodsLog( LOG_NOTICE, "XXXXX-after ioctx create");
         if (status < 0) {
             rodsLog( LOG_ERROR, "irados: cannot setup ioctx for cluster: error %d", status);
             result.code(PLUGIN_ERROR);
@@ -308,7 +328,6 @@ extern "C" {
         
         _ctx.prop_map().set<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
 
-        rodsLog( LOG_NOTICE, "XXXXX-return");
         return result;
             
     } // irados_create_plugin
@@ -319,34 +338,48 @@ extern "C" {
         irods::resource_plugin_context& _ctx ) {
         irods::error result = SUCCESS();
 
+        //Send read request.
         librados::IoCtx* io_ctx;
-        
-        if (not connect_rados_cluster()) {
-            rodsLog( LOG_ERROR, "irados: cannot connect to cluster.");
-            result.code(PLUGIN_ERROR);
-            return result;
-        }
+        irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
 
-        int ret = rados_cluster_->ioctx_create(pool_name, *io_ctx);
-        if (ret < 0) {
-            rodsLog( LOG_ERROR, "irados: cannot setup ioctx for cluster: error %d", ret);
-            result.code(PLUGIN_ERROR);
-            return result;
-        }   
-        
-        _ctx.prop_map().set<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
-        
+        if (e.code() == KEY_NOT_FOUND) {
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s open creates new io_ctx.", __func__);
+            if (not connect_rados_cluster()) {
+                rodsLog( LOG_ERROR, "irados: cannot connect to cluster.");
+                result.code(PLUGIN_ERROR);
+                return result;
+            }
+            io_ctx = new librados::IoCtx();
+            int ret = rados_cluster_->ioctx_create(pool_name, *io_ctx);
+            if (ret < 0) {
+                rodsLog( LOG_ERROR, "irados: cannot setup ioctx for cluster: error %d", ret);
+                result.code(PLUGIN_ERROR);
+                return result;
+            }   
+            
+            _ctx.prop_map().set<librados::IoCtx*>("CEPH_IOCTX", io_ctx); 
+
+        } else {
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s open found existing io_ctx.", __func__);
+        }
+            
+
+        irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
+                
+        int fd = get_next_fd(_ctx);
+        fop->file_descriptor(fd);
+     
+
         // creates and sets an initial seek ptr.
-        _ctx.prop_map().set < uint64_t > ("OFFSET_PTR", 0);
+        _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, 0);
 
         #ifdef IRADOS_DEBUG
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
 
-            irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
             std::string oid = fop->physical_path();
-
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s opened: %s - %d", __func__, oid.c_str(), instance_id);
+            std::string lid = fop->physical_path();
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s opened: oid: %s logical: %s - (instance: %d, fd: %d)", __func__, oid.c_str(), lid.c_str(), instance_id, fd);
         #endif
         
         return result;
@@ -363,11 +396,12 @@ extern "C" {
 
 		irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object>(_ctx.fco());
         std::string oid = fop->physical_path();
+        int fd = fop->file_descriptor();
 
 		int status = 0;
 
 		uint64_t read_ptr = 0;
-		_ctx.prop_map().get < uint64_t > ("OFFSET_PTR", read_ptr);
+		_ctx.prop_map().get < uint64_t > ("OFFSET_PTR_" + fd, read_ptr);
 
 		//Send read request.
 		librados::IoCtx* io_ctx;
@@ -387,8 +421,8 @@ extern "C" {
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
 
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s from %s off: %lu, len: %d RETURNED: %d - %d",
-				__func__, oid.c_str(), read_ptr, _len, status, instance_id);
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s from %s off: %lu, len: %d RETURNED: %d - (instance: %d, fd: %d)",
+				__func__, oid.c_str(), read_ptr, _len, status, instance_id, fd);
         #endif
 
 	    result.code(status);
@@ -396,7 +430,7 @@ extern "C" {
         read_buf.copy(0, status, (char*) _buf);
 
         // update the seek ptr.
-        _ctx.prop_map().set < uint64_t > ("OFFSET_PTR", (read_ptr + status));
+        _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, (read_ptr + status));
 
 	   return result;
     } // irados_read_plugin
@@ -412,53 +446,39 @@ extern "C" {
 
 		irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object>(_ctx.fco());
 		std::string oid = fop->physical_path();
-      
-        #ifdef IRADOS_DEBUG
-            int instance_id = 0;
-            _ctx.prop_map().get < int> ("instance_id", instance_id);
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s - %s - XXXX - A - %d", __func__, oid.c_str(), instance_id);
-        #endif
+        int fd = fop->file_descriptor();
 
 		librados::IoCtx* io_ctx;
         irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
 		if (e.code() == KEY_NOT_FOUND) {
             // ioctx was created in open()
-            rodsLog( LOG_ERROR, "IRADOS_DEBUG %s - %s - no IoCtx available - %d", __func__, oid.c_str(), instance_id);
+            rodsLog( LOG_ERROR, "IRADOS_DEBUG %s - %s - no IoCtx available", __func__, oid.c_str());
 			result.code(PLUGIN_ERROR);
 			return result;
 		}
-
-        #ifdef IRADOS_DEBUG
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s - %s - XXXX - B - %d", __func__, oid.c_str(), instance_id);
-        #endif
-
+      
 		uint64_t write_ptr = 0;
-		_ctx.prop_map().get < uint64_t > ("OFFSET_PTR", write_ptr);
+		_ctx.prop_map().get < uint64_t > ("OFFSET_PTR_" + fd, write_ptr);
 
 		librados::bufferlist write_buf;
 		write_buf.append((char*)_buf, _len);
 
-        #ifdef IRADOS_DEBUG
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s - %s - XXXX - C - %d", __func__, oid.c_str(), instance_id);
-        #endif
-		int status = io_ctx->write(oid, write_buf, _len, write_ptr);
+      	int status = io_ctx->write(oid, write_buf, _len, write_ptr);
 		if (status < 0) {
 			rodsLog( LOG_ERROR, "Couldn't write object '%s' - error: %d", oid.c_str(), status);
             result.code(PLUGIN_ERROR);
             return result;
         }
 		
-        #ifdef IRADOS_DEBUG
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s - %s - XXXX - D - %d", __func__, oid.c_str(), instance_id);
-        #endif
         result.code( status );
 
-		_ctx.prop_map().set < uint64_t > ("OFFSET_PTR", (write_ptr + _len));
+		_ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, (write_ptr + _len));
 
         #ifdef IRADOS_DEBUG
+            int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
-
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s to %s off: %lu, len: %lu - %d", __func__, oid.c_str(), write_ptr, _len, instance_id);
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s to %s off: %lu, len: %lu - (instance: %d, fd: %d)",
+                __func__, oid.c_str(), write_ptr, _len, instance_id, fd);
         #endif     
 
 	    return result;
@@ -474,12 +494,12 @@ extern "C" {
 
         #ifdef IRADOS_DEBUG
             int instance_id = 0;
-            _ctx.prop_map().get < int> ("instance_id", instance_id);
+            _ctx.prop_map().get <int> ("instance_id", instance_id);
 
             irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
             std::string oid = fop->physical_path();
-      
-        	rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s %s - %d", __func__, oid.c_str(), instance_id);
+            int fd = fop->file_descriptor();
+        	rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s %s - (instance: %d, fd: %d)", __func__, oid.c_str(), instance_id, fd);
         #endif
         return result;
     } // irados_close_plugin
@@ -544,6 +564,14 @@ extern "C" {
 
         irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string oid = fop->physical_path();
+        std::string lid = fop->logical_path();
+
+        #ifdef IRADOS_DEBUG
+            int instance_id = 0;
+            _ctx.prop_map().get < int> ("instance_id", instance_id);
+
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s -> oid: %s, logical_path: %s", __func__, oid.c_str(), lid.c_str());
+        #endif
 
         librados::IoCtx* io_ctx;
 
@@ -559,7 +587,6 @@ extern "C" {
         int status = io_ctx->stat(oid, &psize, &pmtime);
 
         #ifdef IRADOS_DEBUG
-            int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
 
             rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s -> status: %d, oid: %s stat got pmtime: %lu, size:%lu - %d", __func__, status, oid.c_str(), pmtime, psize, instance_id);
@@ -582,16 +609,18 @@ extern "C" {
         int                                 _whence ) {
         irods::error result = SUCCESS();
 
+        irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
+
+        int fd = fop->file_descriptor();
+
         #ifdef IRADOS_DEBUG
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
 
-	        rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s offset: %lu, whence: %d - %d", __func__, _offset, _whence, instance_id);
+	        rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s offset: %lu, whence: %d - (instance: %d, fd: %d)", __func__, _offset, _whence, instance_id, fd);
         #endif
 
-    // =-=-=-=-=-=-=-
-        // Check the operation parameters and update the physical path
-       	_ctx.prop_map().set< uint64_t>("OFFSET_PTR", _offset);
+       	_ctx.prop_map().set< uint64_t>("OFFSET_PTR_" + fd, _offset);
 
         return result;
 
