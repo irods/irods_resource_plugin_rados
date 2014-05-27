@@ -588,9 +588,9 @@ extern "C" {
 
          // =-=-=-=-=-=-=-
         // verify that the resc context is valid
-        ret = _ctx.valid();
-        result = ASSERT_PASS(ret, "Resource context is invalid");
-        rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s _ctx.valid() %s", __func__, ret);        
+        irods::error ret = _ctx.valid();
+        // result = ASSERT_PASS(ret, "Resource context is invalid");
+        rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s _ctx.valid() %s", __func__, ret.code());        
 
 
         irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
