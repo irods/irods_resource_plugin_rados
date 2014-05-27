@@ -296,12 +296,12 @@ extern "C" {
         if ( ( result = ASSERT_PASS( ret, "Error determining freespace on system." ) ).ok() ) {
             rodsLong_t file_size = fop->size();
             if ( ( result = ASSERT_ERROR( file_size < 0 || ret.code() >= file_size, USER_FILE_TOO_LARGE, "File size: %ld is greater than space left on device: %ld", file_size, ret.code() ) ).ok() ) {
-                // fop->physical_path(oid);
+                fop->physical_path(oid);
             }
         }
 
         // fop->physical_path(fop->physical_path());
-        // fop->physical_path(oid);
+        fop->physical_path(oid);
 
         int fd = get_next_fd(_ctx);
         fop->file_descriptor(fd);
@@ -496,13 +496,13 @@ extern "C" {
 
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s to %s off: %lu, len: %lu, first_b: %d (instance: %d, fd: %d)",
-                __func__, oid.c_str(),
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s to %s off: %lu, len: %lu, (instance: %d, fd: %d)",
+                __func__, 
+                oid.c_str(),
                  write_ptr,
                 _len,
-                content[0],
-                content[_len - 1],
-                instance_id, fd);
+                instance_id,
+                fd);
         #endif     
 
 	    return result;
@@ -585,6 +585,13 @@ extern "C" {
         irods::resource_plugin_context& _ctx,
         struct stat* _statbuf ) {
         irods::error result = SUCCESS();
+
+         // =-=-=-=-=-=-=-
+        // verify that the resc context is valid
+        ret = _ctx.valid();
+        result = ASSERT_PASS(ret, "Resource context is invalid");
+        rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s _ctx.valid() %s", __func__, ret);        
+
 
         irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string oid = fop->physical_path();
