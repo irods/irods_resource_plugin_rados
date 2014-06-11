@@ -16,3 +16,6 @@ clean:
 	@-for dir in ${SUBS}; do \
 	${MAKE} -C $$dir clean; \
 	done
+
+install:
+	cp libirados.so /var/lib/irods/plugins/resources/libirados.so 
