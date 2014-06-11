@@ -100,6 +100,7 @@ std::string rand_uuid_string()
 }
 
 bool connect_rados_cluster() {
+    rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s enter", __func__);
 	if (rados_initialized_) {
 
         #ifdef IRADOS_DEBUG
@@ -285,30 +286,32 @@ extern "C" {
     // interface for POSIX create
     irods::error irados_create_plugin(
         irods::resource_plugin_context& _ctx ) {
+
+        rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s enter", __func__);
+
         irods::error result = SUCCESS();
 
         // create the irados internal id for this data object
         std::string oid = rand_uuid_string();
 
         irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
-
-        irods::error ret = irados_get_fsfreespace_plugin( _ctx );
-        if ( ( result = ASSERT_PASS( ret, "Error determining freespace on system." ) ).ok() ) {
-            rodsLong_t file_size = fop->size();
-            if ( ( result = ASSERT_ERROR( file_size < 0 || ret.code() >= file_size, USER_FILE_TOO_LARGE, "File size: %ld is greater than space left on device: %ld", file_size, ret.code() ) ).ok() ) {
-                fop->physical_path(oid);
-            }
-        }
+        
+        // irods::error ret = irados_get_fsfreespace_plugin( _ctx );
+        // if ( ( result = ASSERT_PASS( ret, "Error determining freespace on system." ) ).ok() ) {
+        //     rodsLong_t file_size = fop->size();
+        //     if ( ( result = ASSERT_ERROR( file_size < 0 || ret.code() >= file_size, USER_FILE_TOO_LARGE, "File size: %ld is greater than space left on device: %ld", file_size, ret.code() ) ).ok() ) {
+        //         fop->physical_path(oid);
+        //     }
+        // }
 
         // fop->physical_path(fop->physical_path());
-        fop->physical_path(oid);
+        // fop->physical_path(oid);
 
         int fd = get_next_fd(_ctx);
         fop->file_descriptor(fd);
         
         // creates and sets an initial seek ptr for the current fd.
         _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, 0);
-
 
         #ifdef IRADOS_DEBUG
             int instance_id = 0;
