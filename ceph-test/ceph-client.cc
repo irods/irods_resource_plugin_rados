@@ -29,7 +29,7 @@ int main(int argc, const char **argv)
 
         /* Read a Ceph configuration file to configure the cluster handle. */
         {
-                ret = cluster.conf_read_file("/etc/ceph/ceph.conf");
+                ret = cluster.conf_read_file("/etc/irods/irados.config");
                 if (ret < 0) {
                         std::cerr << "Couldn't read the Ceph configuration file! error " << ret << std::endl;
                         ret = EXIT_FAILURE;
