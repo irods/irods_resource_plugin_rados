@@ -1,54 +1,60 @@
-irods_resource_plugin_rados
-===========================
+# irods_resource_plugin_rados
 
 Cacheless Ceph/rados resource plugin for iRODS
 
-=============== TODOS: =============
-- [ ] rename file-example to irados
-- [X] singleton ceph context initialization
-- [ ] Cleanup of io_ctx instances on plugin close? -> i.e. after every read write operation?
 
+## Installation 
 
+Currently, there are no prebuilt packages, but Ubuntu 12.04 and CentOS6.5 have been successfully tested.
 
-=============== Notes: =============
-To install this example plugin:
- $ make
- $ cp libexamplefilesystem.so /var/lib/irods/plugins/resources
- $ chown irods:irods /var/lib/irods/plugins/resources/libexamplefilesystem.so
+Prequesites for Ubuntu:
 
+```
+apt-get install uuid-dev libssl-dev build-essential
 
-To create a new resource:
+wget http://ceph.com/debian/pool/main/c/ceph/librados2_0.80-1precise_amd64.deb
+wget http://ceph.com/debian/pool/main/c/ceph/librados-dev_0.80-1precise_amd64.deb
 
-iadmin mkresc irados irados charon:/Vault/irados/
+sudo dpkg -i librados*.deb
+sudo apt-get install -f
+```
 
+Then checkout, build and install the plugin.
 
+```
+git clone https://github.com/meatz/irods_resource_plugin_rados.git
+cd irods_resource_plugin_rados
+make
+make install
+```
 
-# access files directly from rados
-rados --pool=irods ls
+The plugin needs to be present on both, the iCAT server and the resource server.
 
+## Setup
 
+Create an irods pool on ceph, i.e.
 
-installation of librados:
+```
+ceph osd pool create irods
+ceph auth get-or-create client.irods osd 'allow rw pool=irods' mon 'allow r' > /etc/ceph/client.irods.keyring
+```
 
-http://ceph.com/debian/pool/main/c/ceph/librados2_0.72.2-1precise_amd64.deb
+Copy the key from the newly created keyring and create the ceph config files on the resource server:
 
-
-dpkg -i librados-dev_0.72.2-1raring_amd64.deb librados2_0.72.2-1raring_amd64.deb
-
-
-ceph auth get-or-create client.irods osd 'allow rw' mon 'allow r' > /etc/ceph/keyring.irods
-scp /etc/ceph/keyring.irods archive-ceph-03:/etc/ceph/
-
-
+/etc/irods/irados.config
+```
+[global]
+mon host = hostname_of_any_ceph_monitor
 [client.irods]
-        key = AQCubxhTGFE2BhAA6iATSh3WqWBDIeOgnicBiA==
+        keyring = /etc/irods/irados.keyring
+```
 
-        
- usage:
- 
- http://ceph.com/docs/master/rados/api/librados-intro/
- 
- 
- 
- 
- it seems that ceph / rados also has to be installed on the icat?
+and /etc/irods/irados.keyring
+```
+[client.irods]
+        key = ACME/SECRET/KEY==
+```
+
+```
+iadmin mkresc irados irados irods-rs:/Vault/irados/
+```
