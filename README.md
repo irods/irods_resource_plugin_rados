@@ -55,6 +55,13 @@ and /etc/irods/irados.keyring
         key = ACME/SECRET/KEY==
 ```
 
+If no context like :/tmp/ is provided, the plugin does not work correctly. Nevertheless, the context is not used at all.
 ```
-iadmin mkresc irados irados irods-rs:/Vault/irados/
+iadmin mkresc irados irados irods-rs:/tmp/
+```
+
+Then upload files with:
+
+```
+iput -R irados files/
 ```
