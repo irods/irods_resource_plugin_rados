@@ -574,9 +574,9 @@ extern "C" {
 
             bytes_read += read_len;
             
-            // read_buf.copy(status, (char*) _buf);
-            // read_buf.copy(0, status, (char*) _buf);
-            read_buf.copy(0, read_len, (char*) _buf + (_len - bytes_read));
+            char* p = (char*) _buf;
+            p += (_len - bytes_read);
+            read_buf.copy(0, read_len, p);
         }
     
         #ifdef IRADOS_DEBUG
@@ -592,7 +592,7 @@ extern "C" {
         propmap_guard_.lock();
         // update the seek ptr.
         // _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, (read_ptr + status));
-        fd_offsets_[fd] = read_ptr + status;
+        fd_offsets_[fd] = read_ptr + bytes_read;
         propmap_guard_.unlock();
 
         return result;
@@ -670,7 +670,7 @@ extern "C" {
                 return result;
             }
 
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s to %s blob_id: %d, blob_offset: %lu, write_len: %lu, rados_write_status: %d, (fd: %d)",
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s to %s blob_id: %d, blob_offset: %lu, write_len: %lu, rados_write_status: %d, (fd: %d)",
                     __func__, 
                     blob_oid.c_str(),
                     blob_id,
@@ -682,26 +682,12 @@ extern "C" {
             bytes_written += write_len;
         }
 
-
-// #ifdef IRADOS_DEBUG
-//         int instance_id = 0;
-//         _ctx.prop_map().get < int> ("instance_id", instance_id);
-//         rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s to %s off: %lu, len: %lu, rados_write_status: %d, (instance: %d, fd: %d)",
-//             __func__, 
-//             oid.c_str(),
-//              write_ptr,
-//             _len,
-//             status,
-//             instance_id,
-//             fd);
-// #endif
-
         propmap_guard_.lock();
 
         dirty_oids_[oid] = true;
 
         // _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, (write_ptr + _len));
-        fd_offsets_[fd] = write_ptr + _len;
+        fd_offsets_[fd] = write_ptr + bytes_written;
 
         // keep track of the highest offset for this file as it marks the actual file size.
         // finally, the file size will be written as the base objects xattr "object_size"
@@ -744,7 +730,6 @@ extern "C" {
         
         if (fd_cnt > 1) {
             // fd_cnt_for_this_object--
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s - %s - fd_cnt: %d SKIP UPDATE ON CLOSE", __func__, oid.c_str(), fd_cnt);
             oids_open_fds_cnt_[oid] -= 1;
             propmap_guard_.unlock();
         } else {
@@ -821,7 +806,6 @@ extern "C" {
     #endif
             }   
         }
-
 
         return result;
     } // irados_close_plugin
@@ -958,8 +942,10 @@ extern "C" {
         librados::bufferlist xfilesize;
         int r = io_ctx->getxattr(oid, "FILE_SIZE", xfilesize);
 
-        if (r != 0) {
-            rodsLog( LOG_ERROR, "IRADOS_DEBUG %s -> oid: %s io_ctx->getxattr returned: %d", __func__, oid.c_str(), r);
+        if (r < 0) {
+            rodsLog( LOG_ERROR, "IRADOS_DEBUG %s -> oid: %s io_ctx->getxattr(FILE_SIZE) returned: %d", __func__, oid.c_str(), r);
+            result.code(PLUGIN_ERROR);
+            return result;
         }
 
         uint64_t file_size = strtoul(xfilesize.c_str(), NULL, 0);
@@ -969,10 +955,10 @@ extern "C" {
 
          #ifdef IRADOS_DEBUG
             _ctx.prop_map().get < int > ("instance_id", instance_id);
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s -> status: %d, oid: %s stat got pmtime: %lu, size:%lu - %d", __func__, status, oid.c_str(), pmtime, file_size, instance_id);
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s -> status: %d, oid: %s stat got pmtime: %lu, size:%lu - %d", __func__, status, oid.c_str(), pmtime, file_size, instance_id);
         #endif
 
-        result.code(status);
+        // result.code(status);
 #ifdef IRADOS_TIME
         clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
         cout << "IRADOS_TIME: stat " << ts.tv_sec << " " << ts.tv_nsec << endl;
