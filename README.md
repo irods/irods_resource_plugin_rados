@@ -36,8 +36,8 @@ Prequesites for Ubuntu:
 ```
 apt-get install uuid-dev libssl-dev build-essential
 
-wget http://ceph.com/debian/pool/main/c/ceph/librados2_0.80-1precise_amd64.deb
-wget http://ceph.com/debian/pool/main/c/ceph/librados-dev_0.80-1precise_amd64.deb
+wget http://ceph.com/debian/pool/main/c/ceph/librados2_0.80.5-1precise_amd64.deb
+wget http://ceph.com/debian/pool/main/c/ceph/librados-dev_0.80.5-1precise_amd64.deb
 
 sudo dpkg -i librados*.deb
 sudo apt-get install -f
