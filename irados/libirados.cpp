@@ -126,7 +126,7 @@ std::string rand_uuid_string()
     char ch[36];
     memset(ch, 0, 36);
     uuid_unparse(t, ch);
-    return string(ch);
+    return std::string(ch);
 }
 
 bool connect_rados_cluster() {
@@ -198,7 +198,7 @@ bool connect_rados_cluster() {
 
 #ifdef IRADOS_TIME
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
-    cout << "IRADOS_TIME: cluster_connect  " << ts.tv_sec << " " << ts.tv_nsec << endl;
+    std::cout << "IRADOS_TIME: cluster_connect  " << ts.tv_sec << " " << ts.tv_nsec << std::endl;
 #endif
 
     return true;
@@ -422,7 +422,7 @@ extern "C" {
 
 #ifdef IRADOS_TIME
         clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
-        cout << "IRADOS_TIME: create  " << ts.tv_sec << " " << ts.tv_nsec << endl;
+        std::cout << "IRADOS_TIME: create  " << ts.tv_sec << " " << ts.tv_nsec << std::endl;
 #endif
         return result;
     } // irados_create_plugin
@@ -445,7 +445,7 @@ extern "C" {
         std::string oid = fop->physical_path();
 
         // test if the oid is a unique id. We have to get a uuid here.
-        if (oid.find("/") != string::npos) {
+        if (oid.find("/") != std::string::npos) {
             result.code(FILE_OPEN_ERR);
             return result;
         }
@@ -898,7 +898,7 @@ extern "C" {
 
 #ifdef IRADOS_TIME
         clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
-        cout << "IRADOS_TIME: unlink  " << ts.tv_sec << " " << ts.tv_nsec << endl;
+        std::cout << "IRADOS_TIME: unlink  " << ts.tv_sec << " " << ts.tv_nsec << std::endl;
 #endif
         return result;
     } // irados_unlink_plugin
@@ -961,7 +961,7 @@ extern "C" {
         // result.code(status);
 #ifdef IRADOS_TIME
         clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
-        cout << "IRADOS_TIME: stat " << ts.tv_sec << " " << ts.tv_nsec << endl;
+        std::cout << "IRADOS_TIME: stat " << ts.tv_sec << " " << ts.tv_nsec << std::endl;
 #endif 
 
         return result;
@@ -1281,14 +1281,14 @@ extern "C" {
                          // =-=-=-=-=-=-=-
                          // call redirect determination for 'get' operation
                          ret = irados_redirect_open( _ctx.prop_map(), file_obj, resc_name, ( *_curr_host ), ( *_out_vote ) );
-                         result = ASSERT_PASS_MSG( ret, "Failed redirecting for open." );
+                         result = ASSERT_PASS( ret, "Failed redirecting for open." );
 
                      }
                      else if ( irods::CREATE_OPERATION == ( *_opr ) ) {
                          // =-=-=-=-=-=-=-
                          // call redirect determination for 'create' operation
                          ret = irados_redirect_create( _ctx.prop_map(), file_obj, resc_name, ( *_curr_host ), ( *_out_vote ) );
-                         result = ASSERT_PASS_MSG( ret, "Failed redirecting for create." );
+                         result = ASSERT_PASS( ret, "Failed redirecting for create." );
                      }
 
                      else {
