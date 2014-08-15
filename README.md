@@ -31,7 +31,7 @@ All following files are named as uuid-1, uuid-2, ...
 
 Currently, there are no prebuilt packages, but Ubuntu 12.04 and CentOS6.5 have been successfully tested.
 
-Prequesites for Ubuntu:
+Prerequisites for Ubuntu:
 
 ```
 apt-get install uuid-dev libssl-dev build-essential
@@ -51,8 +51,6 @@ cd irods_resource_plugin_rados
 make
 make install
 ```
-
-The plugin needs to be present on both, the iCAT server and the resource server.
 
 ## Setup
 
