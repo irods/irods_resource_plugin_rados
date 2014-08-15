@@ -1,4 +1,3 @@
-
 // =-=-=-=-=-=-=-
 // irods includes
 #include "msParam.hpp"
@@ -75,7 +74,11 @@
 // RADOS
 #include <rados/librados.hpp>
 
-#define IRADOS_DEBUG
+
+// switches to turn on some debugging infos and verbose log output
+// #define IRADOS_DEBUG
+// #define IRADOS_TIME
+
 
 #ifdef IRADOS_DEBUG
     #include <time.h>
@@ -83,7 +86,7 @@
     #include <unistd.h>
 #endif
 
-#define IRADOS_TIME
+
 
 #ifdef IRADOS_TIME
     #include <time.h>
@@ -107,9 +110,12 @@ bool rados_initialized_ = false;
 
 static librados::Rados* rados_cluster_ = NULL;
 
-
+#ifdef IRADOS_DEBUG
 // just for debugging purposes
 int num_open_fds_ = 0;
+#endif
+
+int _last_valid_fd = 0;
 
 std::map<std::string, int> oids_open_fds_cnt_;
 std::map<std::string, bool> dirty_oids_;
@@ -158,7 +164,7 @@ bool connect_rados_cluster() {
 
     librados::Rados* cluster = new librados::Rados();
     int ret;
-    /* Initialize the cluster handle with the "ceph" cluster name and "client.admin" user */
+    /* Initialize the cluster handle */
     {
         ret = cluster->init2(user_name, cluster_name, flags);
         if (ret < 0) {
@@ -171,7 +177,7 @@ bool connect_rados_cluster() {
         }
     }
 
-    /* Read a Ceph configuration file to configure the cluster handle. */
+    /* Read the Ceph configuration file to configure the cluster handle. */
     {
         ret = cluster->conf_read_file("/etc/irods/irados.config");
         if (ret < 0) {
@@ -210,17 +216,12 @@ bool connect_rados_cluster() {
 
 
 /**
- * Returns next free fd. Has to be encapsulated in a propmap_guard lock.
+ * Returns next free fd. 
+ * During the plugin lifetime, multiple fds may be opened.
+ * Simply return a fresh one every time.
  */
-int get_next_fd(irods::resource_plugin_context& _ctx) {
-    int fd = 0;
-    /*
-     * During the plugin lifetime, multiple fds may be opened.
-     * Simlply return a fresh one every time.
-     */
-    _ctx.prop_map().get < int > ("fd", fd);
-    _ctx.prop_map().set< int >("fd", (fd + 1));
-    return fd;
+int get_next_fd() { 
+    return ++_last_valid_fd;
 }
 
 
@@ -247,7 +248,7 @@ extern "C" {
 
         #ifdef IRADOS_DEBUG
             int instance_id = 0;
-            _ctx.prop_map().get < int> ("instance_id", instance_id);
+            _ctx.prop_map().get < int > ("instance_id", instance_id);
             rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s enter - %d", __func__, instance_id);
         #endif
 
@@ -315,7 +316,6 @@ extern "C" {
   //};
 
 
-
     rodsLong_t fssize = 1000000000;
     result.code( fssize );
 
@@ -364,7 +364,7 @@ extern "C" {
 
         propmap_guard_.lock();
         
-        int fd = get_next_fd(_ctx);
+        int fd = get_next_fd();
         fop->file_descriptor(fd);
                 
         // creates and sets an initial seek ptr for the current fd.
@@ -482,10 +482,9 @@ extern "C" {
         }
         
         // gets the next free fd for this plugin instance
-        int fd = get_next_fd(_ctx);
+        int fd = get_next_fd();
         fop->file_descriptor(fd);
         // creates and sets an initial seek ptr.
-        // _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, 0);
         fd_offsets_[fd] = 0;
 
         // fd_cnt_for_this_object++
@@ -521,8 +520,7 @@ extern "C" {
         int status = 0;
 
         propmap_guard_.lock();
-        // uint64_t read_ptr = 0;
-        // _ctx.prop_map().get < uint64_t > ("OFFSET_PTR_" + fd, read_ptr);
+        
         uint64_t read_ptr = fd_offsets_[fd];
 
         //Send read request.
@@ -590,8 +588,7 @@ extern "C" {
         result.code(bytes_read);
 
         propmap_guard_.lock();
-        // update the seek ptr.
-        // _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, (read_ptr + status));
+        
         fd_offsets_[fd] = read_ptr + bytes_read;
         propmap_guard_.unlock();
 
@@ -629,8 +626,6 @@ extern "C" {
             return result;
         }
 
-         // write_ptr = 0;
-        // _ctx.prop_map().get < uint64_t > ("OFFSET_PTR_" + fd, write_ptr);
         uint64_t write_ptr = fd_offsets_[fd];
 
         propmap_guard_.unlock();
@@ -652,12 +647,11 @@ extern "C" {
             write_buf.append(p, write_len);
 
             // determine the correct object id of the block to write
-
             std::stringstream out;
             if (blob_id > 0) {
                 out << oid << "-" << blob_id;    
             } else {
-                // the first block has no -XX identifiert
+                // the first block has no -XX identifier
                 out << oid;
             }
             std::string blob_oid = out.str();
@@ -686,11 +680,10 @@ extern "C" {
 
         dirty_oids_[oid] = true;
 
-        // _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, (write_ptr + _len));
         fd_offsets_[fd] = write_ptr + bytes_written;
 
         // keep track of the highest offset for this file as it marks the actual file size.
-        // finally, the file size will be written as the base objects xattr "object_size"
+        // finally, the file size will be written as the base object's xattr "object_size"
         uint64_t max_file_size = 0;
         _ctx.prop_map().get < uint64_t > ("SIZE_" + oid, max_file_size);
         if ((write_ptr + _len) > max_file_size) {
@@ -722,8 +715,6 @@ extern "C" {
         std::string oid = fop->physical_path();
         int fd = fop->file_descriptor();
         
-        // TODO: maybe the ioctx needs to be closed / destroyed / deleted?
-        
         propmap_guard_.lock();
         
         int fd_cnt = oids_open_fds_cnt_[oid];
@@ -734,7 +725,6 @@ extern "C" {
             propmap_guard_.unlock();
         } else {
             // this was the last fd for the object.
-            // _ctx.prop_map().erase("FD_CNT_" + oid);
             oids_open_fds_cnt_.erase(oid);
 
             // check if any of the opened fds actually changed something.
@@ -799,11 +789,11 @@ extern "C" {
                     result.code(PLUGIN_ERROR);
                 }
 
-    #ifdef IRADOS_DEBUG
+#ifdef IRADOS_DEBUG
                 int instance_id = 0;
                 _ctx.prop_map().get <int> ("instance_id", instance_id);  
                 rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s %s - closed blob: highest blob-id: %lu, size: %lu (instance: %d, fd: %d)", __func__, oid.c_str(), num_blobs, max_file_size, instance_id, fd, num_open_fds_);
-    #endif
+#endif
             }   
         }
 
