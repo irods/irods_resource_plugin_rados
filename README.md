@@ -43,7 +43,7 @@ sudo dpkg -i librados*.deb
 sudo apt-get install -f
 ```
 
-Then checkout, build and install the plugin.
+Then checkout, build and install the plugin on the resource server
 
 ```
 git clone https://github.com/meatz/irods_resource_plugin_rados.git
