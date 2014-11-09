@@ -76,7 +76,7 @@
 
 
 // switches to turn on some debugging infos and verbose log output
-// #define IRADOS_DEBUG
+#define IRADOS_DEBUG
 // #define IRADOS_TIME
 
 
@@ -533,6 +533,14 @@ extern "C" {
             return result;
         }
 
+        #ifdef IRADOS_DEBUG
+            int instance_id = 0;
+            _ctx.prop_map().get < int> ("instance_id", instance_id);
+
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s from %s off: %lu, len: %d - (instance: %d, fd: %d)",
+                __func__, oid.c_str(), read_ptr, _len, instance_id, fd);
+        #endif
+        
         uint64_t bytes_read = 0;
         
         while (bytes_read < _len) {
@@ -560,8 +568,10 @@ extern "C" {
                     result.code(PLUGIN_ERROR);
                     return result;
             }
+        
+            #ifdef IRADOS_DEBUG
 
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s to %s blob_id: %d, blob_offset: %lu, write_len: %lu, rados_write_status: %d, (fd: %d)",
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s from %s blob_id: %d, blob_offset: %lu, read: %lu, rados_read status: %d, (fd: %d)",
                     __func__, 
                     blob_oid.c_str(),
                     blob_id,
@@ -569,6 +579,7 @@ extern "C" {
                     read_len,
                     status,
                     fd);
+            #endif
 
             bytes_read += read_len;
             
@@ -577,13 +588,6 @@ extern "C" {
             read_buf.copy(0, read_len, p);
         }
     
-        #ifdef IRADOS_DEBUG
-            int instance_id = 0;
-            _ctx.prop_map().get < int> ("instance_id", instance_id);
-
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s from %s off: %lu, len: %d RETURNED: %d - (instance: %d, fd: %d)",
-                __func__, oid.c_str(), read_ptr, _len, status, instance_id, fd);
-        #endif
 
         result.code(bytes_read);
 
