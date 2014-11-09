@@ -450,6 +450,7 @@ extern "C" {
             return result;
         }
 
+        // create rados connection context
         librados::IoCtx* io_ctx;
         propmap_guard_.lock();
         irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
@@ -480,6 +481,24 @@ extern "C" {
             rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s open found existing io_ctx.", __func__);
 #endif
         }
+
+
+        // Retrieve object stats like total object size, etc. They are stored in the first blob's xattrs.
+         
+        int r;
+        librados::bufferlist obj_file_size;
+        r = io_ctx->getxattr(oid, "FILE_SIZE", obj_file_size);
+        if (r < 0) {
+            rodsLog(LOG_ERROR, "irados: cannot read xattr for oid:%s error %d",oid.c_str(), r);
+            result.code(FILE_OPEN_ERR);
+            return result;
+        } else {
+            //obj_file_size.c_str(); ==> int!
+            uint64_t fs = strtoull(obj_file_size.c_str(), NULL, 0); 
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG FOUND FILE SIZE = %llu",fs );
+        }
+
+
         
         // gets the next free fd for this plugin instance
         int fd = get_next_fd();
