@@ -493,13 +493,11 @@ extern "C" {
             result.code(FILE_OPEN_ERR);
             return result;
         } else {
-            //obj_file_size.c_str(); ==> int!
             uint64_t fs = strtoull(obj_file_size.c_str(), NULL, 0); 
             rodsLog( LOG_NOTICE, "IRADOS_DEBUG FOUND FILE SIZE = %llu",fs );
+            _ctx.prop_map().set < uint64_t > ("SIZE_" + oid, fs);            
         }
 
-
-        
         // gets the next free fd for this plugin instance
         int fd = get_next_fd();
         fop->file_descriptor(fd);
@@ -542,10 +540,29 @@ extern "C" {
         
         uint64_t read_ptr = fd_offsets_[fd];
 
-        //Send read request.
+        // make sure to not read out of the bounds of this object.
+        uint64_t max_file_size = 0;
+        _ctx.prop_map().get < uint64_t > ("SIZE_" + oid, max_file_size);
+
         librados::IoCtx* io_ctx;
         irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
+
         propmap_guard_.unlock();
+
+        // check that only existing bytes are read.
+
+        /*
+        if (read_ptr >= max_file_size) {
+            result.code(0);
+            return result;
+        }
+
+        if (read_ptr + _len > max_file_size) {
+          _len = (max_file_size - read_ptr);
+        }
+
+        */
+
         if (e.code() == KEY_NOT_FOUND) {
             // ioctx should have been created in open()
             result.code(PLUGIN_ERROR);
