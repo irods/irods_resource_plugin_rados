@@ -494,7 +494,6 @@ extern "C" {
             return result;
         } else {
             uint64_t fs = strtoull(obj_file_size.c_str(), NULL, 0); 
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG FOUND FILE SIZE = %llu",fs );
             _ctx.prop_map().set < uint64_t > ("SIZE_" + oid, fs);            
         }
 
@@ -551,7 +550,6 @@ extern "C" {
 
         // check that only existing bytes are read.
 
-        /*
         if (read_ptr >= max_file_size) {
             result.code(0);
             return result;
@@ -560,8 +558,6 @@ extern "C" {
         if (read_ptr + _len > max_file_size) {
           _len = (max_file_size - read_ptr);
         }
-
-        */
 
         if (e.code() == KEY_NOT_FOUND) {
             // ioctx should have been created in open()
@@ -573,7 +569,7 @@ extern "C" {
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
 
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s from %s off: %lu, len: %d - (instance: %d, fd: %d)",
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s ReadRequest: from %s off: %lu, len: %d - (instance: %d, fd: %d)",
                 __func__, oid.c_str(), read_ptr, _len, instance_id, fd);
         #endif
         
@@ -592,7 +588,7 @@ extern "C" {
             if (blob_id > 0) {
                 out << oid << "-" << blob_id;    
             } else {
-                // the first block has no -XX identifiert
+                // the first block has no -XX identifier
                 out << oid;
             }
             blob_oid = out.str();
@@ -604,10 +600,16 @@ extern "C" {
                     result.code(PLUGIN_ERROR);
                     return result;
             }
-        
-            #ifdef IRADOS_DEBUG
+       
+            
+            char* p = (char*) _buf;
+            p += bytes_read;
+            read_buf.copy(0, status, p);
+            
+            bytes_read += status;
 
-            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s from %s blob_id: %d, blob_offset: %lu, read: %lu, rados_read status: %d, (fd: %d)",
+#ifdef IRADOS_DEBUG
+            rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s ReadPart: from %s blob_id: %d, blob_offset: %lu, read: %lu, rados_read status: %d, (fd: %d)",
                     __func__, 
                     blob_oid.c_str(),
                     blob_id,
@@ -615,13 +617,7 @@ extern "C" {
                     read_len,
                     status,
                     fd);
-            #endif
-
-            bytes_read += read_len;
-            
-            char* p = (char*) _buf;
-            p += (_len - bytes_read);
-            read_buf.copy(0, read_len, p);
+#endif
         }
     
 
