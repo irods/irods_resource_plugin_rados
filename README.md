@@ -33,11 +33,12 @@ Currently, there are no prebuilt packages, but Ubuntu 12.04 and CentOS6.5 have b
 
 Prerequisites for Ubuntu:
 
+Follow the steps at http://docs.ceph.com/docs/master/start/quick-start-preflight/#advanced-package-tool-apt to add the official ceph repositories that match your running cluster's version.
+
 ```
 apt-get install uuid-dev libssl-dev build-essential
 
-wget http://ceph.com/debian/pool/main/c/ceph/librados2_0.80.7-1precise_amd64.deb
-wget http://ceph.com/debian/pool/main/c/ceph/librados-dev_0.80.7-1precise_amd64.deb
+apt-get install librados2 librados-dev
 
 sudo dpkg -i librados*.deb
 sudo apt-get install -f
