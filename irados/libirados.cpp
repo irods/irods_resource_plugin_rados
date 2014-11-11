@@ -76,7 +76,7 @@
 
 
 // switches to turn on some debugging infos and verbose log output
-#define IRADOS_DEBUG
+// #define IRADOS_DEBUG
 // #define IRADOS_TIME
 
 
@@ -339,10 +339,10 @@ extern "C" {
 #endif
 
 #ifdef IRADOS_DEBUG
-//        rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s enter", __func__);
-        // irods::stacktrace st;
-        // st.trace();
-        // st.dump();
+        rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s enter", __func__);
+        irods::stacktrace st;
+        st.trace();
+        st.dump();
 #endif
         irods::error result = SUCCESS();
 
@@ -450,6 +450,9 @@ extern "C" {
             return result;
         }
 
+
+        rodsLog( LOG_NOTICE, "IRADOS_DEBUG OPEN called on oid: %s" , oid.c_str());
+
         // create rados connection context
         librados::IoCtx* io_ctx;
         propmap_guard_.lock();
@@ -484,28 +487,31 @@ extern "C" {
 
 
         // Retrieve object stats like total object size, etc. They are stored in the first blob's xattrs.
-         
-        int r;
-        librados::bufferlist obj_file_size;
-        r = io_ctx->getxattr(oid, "FILE_SIZE", obj_file_size);
-        if (r < 0) {
-            rodsLog(LOG_ERROR, "irados: cannot read xattr for oid:%s error %d",oid.c_str(), r);
-            result.code(FILE_OPEN_ERR);
-            return result;
-        } else {
-            uint64_t fs = strtoull(obj_file_size.c_str(), NULL, 0); 
-            _ctx.prop_map().set < uint64_t > ("SIZE_" + oid, fs);            
-        }
+        
+        // fd_cnt_for_this_object++
+        int cnt = ++oids_open_fds_cnt_[oid];
 
+        if (cnt == 1) {
+            // NOTE: This must only happen, if this fs is the first for the oid.
+            int r;
+            librados::bufferlist obj_file_size;
+            r = io_ctx->getxattr(oid, "FILE_SIZE", obj_file_size);
+            if (r < 0) {
+                rodsLog(LOG_ERROR, "irados: cannot read xattr for oid:%s error %d",oid.c_str(), r);
+                result.code(PLUGIN_ERROR);
+                return result;
+            } else {
+                uint64_t fs = strtoull(obj_file_size.c_str(), NULL, 0); 
+                _ctx.prop_map().set < uint64_t > ("SIZE_" + oid, fs);            
+            }
+
+        }
         // gets the next free fd for this plugin instance
         int fd = get_next_fd();
         fop->file_descriptor(fd);
         // creates and sets an initial seek ptr.
         fd_offsets_[fd] = 0;
 
-        // fd_cnt_for_this_object++
-        oids_open_fds_cnt_[oid] += 1;
-        dirty_oids_[oid] = false;
 
         #ifdef IRADOS_DEBUG
             num_open_fds_++;
