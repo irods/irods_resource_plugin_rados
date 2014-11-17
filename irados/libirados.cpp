@@ -984,6 +984,7 @@ extern "C" {
 
         _statbuf->st_mtime = pmtime;
         _statbuf->st_size = file_size;
+        _statbuf->st_mode = 0 | S_IRWXU | S_IRWXG;
 
          #ifdef IRADOS_DEBUG
             _ctx.prop_map().get < int > ("instance_id", instance_id);
