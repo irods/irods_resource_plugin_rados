@@ -147,6 +147,19 @@ bool init_rados_ctx(irods::plugin_property_map& _prop_map) {
     clock_settime(CLOCK_PROCESS_CPUTIME_ID, &ts);
 #endif
    
+
+    #ifdef IRADOS_DEBUG
+
+         std::string xcontext;
+        _prop_map.get<std::string>(irods::RESOURCE_CONTEXT, xcontext);
+
+        int instance_id = 0;
+        _prop_map.get < int > ("instance_id", instance_id);
+        rodsLog(LOG_NOTICE, "IRADOS_DEBUG CTX INIT: instance: %d -> %s", instance_id, xcontext.c_str());
+    #endif
+
+
+
     if (io_ctx_ != NULL) {
         return true;
     }
@@ -401,18 +414,23 @@ extern "C" {
 
 
         #ifdef IRADOS_DEBUG
+            
+            std::string rcontext;
+            _ctx.prop_map().get<std::string>(irods::RESOURCE_CONTEXT, rcontext);
+
             int flags = fop->flags();
             num_open_fds_++;
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) created: %s with flags: %d - (instance: %d, fd: %d) open fds: %d",
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) created: %s with flags: %d - (instance: %d, fd: %d) open fds: %d, context: %s",
             __func__,
             pool_name_.c_str(),
             oid.c_str(),
             flags,
             instance_id,
             fd, 
-            num_open_fds_);
+            num_open_fds_,
+            rcontext.c_str());
         #endif
 
         propmap_guard_.unlock();
@@ -447,12 +465,16 @@ extern "C" {
         }
 
 #ifdef IRADOS_DEBUG
-        rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) called on oid: %s for path: %s with flags: %d",
+        std::string rcontext;
+        _ctx.prop_map().get<std::string>(irods::RESOURCE_CONTEXT, rcontext);
+
+        rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) called on oid: %s for path: %s with flags: %d, context: %s",
             __func__,
             pool_name_.c_str(),
             oid.c_str(),
             fop->physical_path().c_str(),
-            flags
+            flags,
+            rcontext.c_str()
             );
 #endif
         
@@ -648,8 +670,11 @@ extern "C" {
             status = io_ctx_->read(blob_oid, read_buf, read_len, blob_offset);
 
             if (status < 0) {
-                rodsLog(LOG_ERROR, "Couldn't read object '%s' - error: %d", blob_oid.c_str(), status);
-                    result.code(PLUGIN_ERROR);
+                rodsLog(LOG_ERROR, "Couldn't read object '%s' from pool: '%s' - error: %d",
+                 blob_oid.c_str(),
+                 pool_name_.c_str(),
+                 status);
+                    result.code(UNIX_FILE_OPEN_ERR);
                     return result;
             }
        
