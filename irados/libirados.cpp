@@ -104,9 +104,8 @@ const uint64_t RADOS_BLOB_SIZE = 4194304;
 boost::mutex rados_guard_;
 boost::mutex propmap_guard_;
 
-bool rados_initialized_ = false;
-
 static librados::Rados* rados_cluster_ = NULL;
+static librados::IoCtx* io_ctx_ = NULL;
 
 #ifdef IRADOS_DEBUG
 // just for debugging purposes
@@ -133,7 +132,13 @@ std::string rand_uuid_string()
     return std::string(ch);
 }
 
-bool connect_rados_cluster(irods::plugin_property_map& _prop_map) {
+
+/**
+ * Create the rados connection.
+ * Is called before each rados operation.
+ * One global ioctx is shared by all operations.
+ */
+bool init_rados_ctx(irods::plugin_property_map& _prop_map) {
     
 #ifdef IRADOS_TIME
     timespec ts;
@@ -142,8 +147,19 @@ bool connect_rados_cluster(irods::plugin_property_map& _prop_map) {
     clock_settime(CLOCK_PROCESS_CPUTIME_ID, &ts);
 #endif
    
+    if (io_ctx_ != NULL) {
+        return true;
+    }
+
+    rados_guard_.lock();
+    if (io_ctx_ != NULL) {
+        rados_guard_.unlock();
+        return true;
+    }
+
+    // get the cluster config string from resource context:
     std::string context;
-    _prop_map.get<std::string>( irods::RESOURCE_CONTEXT, context );
+    _prop_map.get<std::string>(irods::RESOURCE_CONTEXT, context);
     
     // if no context string configuration is given, the default: ceph|irods|client.irods is used.
     if (context.length() > 0) {
@@ -154,26 +170,10 @@ bool connect_rados_cluster(irods::plugin_property_map& _prop_map) {
         pool_name_ = context.substr(left + 1, (right - left - 1) );
         user_name_ = context.substr(right + 1, context.size());
         #ifdef IRADOS_DEBUG
-            rodsLog(LOG_DEBUG, "IRADOS_DEBUG %s parsed resource context as: cluster_name: %s, pool_name: %s, user_name: %s", __func__, cluster_name_.c_str(), pool_name_.c_str(), user_name_.c_str());    
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s parsed resource context as: cluster_name: %s, pool_name: %s, user_name: %s", __func__, cluster_name_.c_str(), pool_name_.c_str(), user_name_.c_str());    
         #endif
     }
-
-    if (rados_initialized_) {
-        #ifdef IRADOS_DEBUG
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s Reusing rados cluster connection", __func__);
-        #endif
-        return true;
-    }
-
-    rados_guard_.lock();
-    if (rados_initialized_) {
-        rados_guard_.unlock();
-        #ifdef IRADOS_DEBUG
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s Reusing rados cluster connection", __func__);
-        #endif
-        return true;
-    }
-
+    
     uint64_t flags = 0;
 
     librados::Rados* cluster = new librados::Rados();
@@ -214,21 +214,30 @@ bool connect_rados_cluster(irods::plugin_property_map& _prop_map) {
     }
 
     rados_cluster_ = cluster;
-    rados_initialized_ = true;
     
-    rados_guard_.unlock();
+    io_ctx_ = new librados::IoCtx();
+    
+    ret = rados_cluster_->ioctx_create(pool_name_.c_str(), *io_ctx_);
+    
+    if (ret < 0) {
+        rodsLog(LOG_ERROR, "irados: cannot setup ioctx for cluster: error %d", ret);
+        goto error;
+    }   
 
 #ifdef IRADOS_TIME
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
     std::cout << "IRADOS_TIME: cluster_connect  " << ts.tv_sec << " " << ts.tv_nsec << std::endl;
 #endif
 
+    // connection to rados successfully established.
+    rados_guard_.unlock();
     return true;
 
     error:
         rados_guard_.unlock();
         return false;
-}
+
+}  // end of init_context
 
 
 /**
@@ -239,7 +248,6 @@ bool connect_rados_cluster(irods::plugin_property_map& _prop_map) {
 int get_next_fd() { 
     return ++_last_valid_fd;
 }
-
 
 extern "C" {
 
@@ -383,31 +391,6 @@ extern "C" {
         int fd = get_next_fd();
         fop->file_descriptor(fd);
                 
-
-        int flags = fop->flags();
-
-        if (flags & O_RDONLY) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_RDONLY", fop->physical_path().c_str());
-        }
-        if (flags & O_WRONLY) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_WRONLY", fop->physical_path().c_str());
-        }
-        if (flags & O_RDWR) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_RDWR", fop->physical_path().c_str());
-        }
-        if (flags & O_TRUNC) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_TRUNC", fop->physical_path().c_str());
-        }
-        if (flags & O_APPEND) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_APPEND", fop->physical_path().c_str());
-        }
-        if (flags & O_CREAT) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_CREAT", fop->physical_path().c_str());
-        }
-        if (flags & O_LARGEFILE) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_LARGEFILE", fop->physical_path().c_str());
-        }
-
         // creates and sets an initial seek ptr for the current fd.
         // _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, 0);
         fd_offsets_[fd] = 0;
@@ -418,6 +401,7 @@ extern "C" {
 
 
         #ifdef IRADOS_DEBUG
+            int flags = fop->flags();
             num_open_fds_++;
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
@@ -433,43 +417,11 @@ extern "C" {
 
         propmap_guard_.unlock();
 
-        if (not connect_rados_cluster(_ctx.prop_map())) {
-            rodsLog(LOG_ERROR, "irados: cannot connect to cluster.");
+        if (not init_rados_ctx(_ctx.prop_map())) {
+            rodsLog(LOG_ERROR, "IRADOS_DEBUG %s - %s - no IoCtx available", __func__, oid.c_str());
             result.code(PLUGIN_ERROR);
             return result;
-        }
-
-        assert(rados_cluster_ != NULL);
-
-        librados::IoCtx* io_ctx;
-        propmap_guard_.lock();
-        irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
-
-        if (e.code() == KEY_NOT_FOUND) {
-            propmap_guard_.unlock();
-            #ifdef IRADOS_DEBUG
-                rodsLog( LOG_NOTICE, "IRADOS_DEBUG %s create creates new io_ctx.", __func__);
-            #endif
-            if (not connect_rados_cluster(_ctx.prop_map())) {
-                rodsLog( LOG_ERROR, "irados: cannot connect to cluster.");
-                result.code(PLUGIN_ERROR);
-                return result;
-            }
-            io_ctx = new librados::IoCtx();
-            int ret = rados_cluster_->ioctx_create(pool_name_.c_str(), *io_ctx);
-            if (ret < 0) {
-                rodsLog(LOG_ERROR, "irados: cannot setup ioctx for cluster: error %d", ret);
-                result.code(PLUGIN_ERROR);
-                return result;
-            }   
-            propmap_guard_.lock();
-            _ctx.prop_map().set<librados::IoCtx*>("CEPH_IOCTX", io_ctx); 
-        } else {
-            #ifdef IRADOS_DEBUG
-                rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s open found existing io_ctx.", __func__);
-            #endif
-        }
-        propmap_guard_.unlock();
+        } 
 
 #ifdef IRADOS_TIME
         clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
@@ -486,31 +438,8 @@ extern "C" {
         
         irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string oid = fop->physical_path();
-
         int flags = fop->flags();
-
-         if (flags & O_RDONLY) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_RDONLY", fop->physical_path().c_str());
-        }
-        if (flags & O_WRONLY) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_WRONLY", fop->physical_path().c_str());
-        }
-        if (flags & O_RDWR) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_RDWR", fop->physical_path().c_str());
-        }
-        if (flags & O_TRUNC) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_TRUNC", fop->physical_path().c_str());
-        }
-        if (flags & O_APPEND) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_APPEND", fop->physical_path().c_str());
-        }
-        if (flags & O_CREAT) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_CREAT", fop->physical_path().c_str());
-        }
-        if (flags & O_LARGEFILE) {
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_LARGEFILE", fop->physical_path().c_str());
-        }
-
+        
         // test if the oid is a unique id. We have to get a uuid here.
         if (oid.find("/") != std::string::npos) {
             result.code(FILE_OPEN_ERR);
@@ -526,67 +455,104 @@ extern "C" {
             flags
             );
 #endif
-        // create rados connection context
-        librados::IoCtx* io_ctx;
-        propmap_guard_.lock();
-        irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
+        
+        if (not init_rados_ctx(_ctx.prop_map())) {
+            rodsLog(LOG_ERROR, "IRADOS_DEBUG %s - %s - no IoCtx available", __func__, oid.c_str());
+            result.code(PLUGIN_ERROR);
+            return result;
+        } 
 
-        if (e.code() == KEY_NOT_FOUND) {
-            propmap_guard_.unlock();
+        
+        if (flags & O_RDONLY) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG open FLAGS path: %s has O_RDONLY", fop->physical_path().c_str());
+        }
+        if (flags & O_WRONLY) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG open FLAGS path: %s has O_WRONLY", fop->physical_path().c_str());
+        }
+        if (flags & O_RDWR) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG open FLAGS path: %s has O_RDWR", fop->physical_path().c_str());
+        }
+        if (flags & O_TRUNC) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG open FLAGS path: %s has O_TRUNC", fop->physical_path().c_str());
+        }
+        if (flags & O_APPEND) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG open FLAGS path: %s has O_APPEND", fop->physical_path().c_str());
+        }
+        if (flags & O_CREAT) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG open FLAGS path: %s has O_CREAT", fop->physical_path().c_str());
+        }
+        if (flags & O_LARGEFILE) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG open FLAGS path: %s has O_LARGEFILE", fop->physical_path().c_str());
+        }
 
-#ifdef IRADOS_DEBUG
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) open creates new io_ctx.", __func__, pool_name_.c_str());
-#endif
-            if (not connect_rados_cluster(_ctx.prop_map())) {
-                rodsLog(LOG_ERROR, "irados: cannot connect to cluster.");
-                result.code(PLUGIN_ERROR);
+        
+        if ((flags & O_TRUNC) && (flags & O_CREAT) && (flags & O_RDWR)) {
+            // File was opened for overwrite. Therefore, truncate it first and handle it as if it was called by create_plugin().
+
+            // how many blobs do we have? delete all... Essentially this comes close to a truncate(0).
+            librados::bufferlist bl;
+            int r = io_ctx_->getxattr(oid, "NUM_BLOBS", bl);
+            
+            if (r < 0) {
+                rodsLog(LOG_ERROR, "IRADOS_DEBUG %s -> oid: %s io_ctx->getxattr returned: %d", __func__, oid.c_str(), r);
+                result.code(UNIX_FILE_STAT_ERR);
                 return result;
             }
-            io_ctx = new librados::IoCtx();
-            int ret = rados_cluster_->ioctx_create(pool_name_.c_str(), *io_ctx);
-            if (ret < 0) {
-                rodsLog(LOG_ERROR, "irados: cannot setup ioctx for cluster: error %d", ret);
-                result.code(PLUGIN_ERROR);
-                return result;
-            }   
-            propmap_guard_.lock();            
-            _ctx.prop_map().set<librados::IoCtx*>("CEPH_IOCTX", io_ctx); 
 
-        } else {
-#ifdef IRADOS_DEBUG
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s open found existing io_ctx.", __func__);
-#endif
+            uint64_t num_blobs = strtoul(bl.c_str(), NULL, 0);
+
+            std::stringstream ss;
+            std::string blob_oid;
+            int status = 0;
+            for (uint64_t blob_id = 0; blob_id <= num_blobs; blob_id++) {
+                
+                if (blob_id > 0) {
+                    ss << oid << "-" << blob_id;    
+                } else {
+                    // the first block has no -XX identifiert
+                    ss << oid;
+                }
+                blob_oid = ss.str();
+                ss.str("");
+                ss.clear();
+                
+                status = io_ctx_->remove(blob_oid);
+                if (status != 0) {
+                    rodsLog(LOG_ERROR, "IRADOS_DEBUG %s -> oid: %s io_ctx_->remove(%s) returned: %d", __func__, oid.c_str(), blob_oid.c_str(), status);
+                }
+                result.code( status );
+            }
         }
 
 
         // Retrieve object stats like total object size, etc. They are stored in the first blob's xattrs.
         
         // fd_cnt_for_this_object++
-        int cnt = ++oids_open_fds_cnt_[oid];
+        // int cnt = ++oids_open_fds_cnt_[oid];
 
-        if (cnt == 1) {
-            // NOTE: This must only happen, if this fs is the first for the oid.
+        // if (cnt == 1) {
+        //     // NOTE: This must only happen, if this fs is the first for the oid.
 
-            librados::bufferlist xfilesize;
-            int r = io_ctx->getxattr(oid, "FILE_SIZE", xfilesize);
+        //     librados::bufferlist xfilesize;
+        //     int r = io_ctx_->getxattr(oid, "FILE_SIZE", xfilesize);
 
-            if (r < 0) {
-                rodsLog(LOG_ERROR, "IRADOS_DEBUG %s (%s) -> oid: %s io_ctx->getxattr(FILE_SIZE) returned: %d",
-                    __func__,
-                    pool_name_.c_str(),
-                    oid.c_str(),
-                    r);
-                result.code(PLUGIN_ERROR);
-                return result;
-            }
-            else {
-                uint64_t file_size = strtoul(xfilesize.c_str(), NULL, 0);
-                _ctx.prop_map().set<uint64_t>("SIZE_" + oid, file_size);
-            }
-            
+        //     if (r < 0) {
+        //         rodsLog(LOG_ERROR, "IRADOS_DEBUG %s (%s) -> oid: %s io_ctx->getxattr(FILE_SIZE) returned: %d",
+        //             __func__,
+        //             pool_name_.c_str(),
+        //             oid.c_str(),
+        //             r);
+        //         result.code(PLUGIN_ERROR);
+        //         return result;
+        //     }
+        //     else {
+        //         uint64_t file_size = strtoul(xfilesize.c_str(), NULL, 0);
+        //         _ctx.prop_map().set<uint64_t>("SIZE_" + oid, file_size);
+        //     }
 
-        }
+        // }
         // gets the next free fd for this plugin instance
+        propmap_guard_.lock();
         int fd = get_next_fd();
         fop->file_descriptor(fd);
         // creates and sets an initial seek ptr.
@@ -633,30 +599,23 @@ extern "C" {
         uint64_t read_ptr = fd_offsets_[fd];
 
         // make sure to not read out of the bounds of this object.
-        uint64_t max_file_size = 0;
-        _ctx.prop_map().get < uint64_t > ("SIZE_" + oid, max_file_size);
+        // uint64_t max_file_size = 0;
+        // _ctx.prop_map().get < uint64_t > ("SIZE_" + oid, max_file_size);
 
-        librados::IoCtx* io_ctx;
-        irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
-
+        
         propmap_guard_.unlock();
 
         // check that only existing bytes are read.
 
-        if (read_ptr >= max_file_size) {
-            result.code(0);
-            return result;
-        }
+        // if (read_ptr >= max_file_size) {
+        //     result.code(0);
+        //     return result;
+        // }
 
-        if (read_ptr + _len > max_file_size) {
-          _len = (max_file_size - read_ptr);
-        }
+        // if (read_ptr + _len > max_file_size) {
+        //   _len = (max_file_size - read_ptr);
+        // }
 
-        if (e.code() == KEY_NOT_FOUND) {
-            // ioctx should have been created in open()
-            result.code(PLUGIN_ERROR);
-            return result;
-        }
 
         #ifdef IRADOS_DEBUG
             int instance_id = 0;
@@ -686,7 +645,7 @@ extern "C" {
             }
             blob_oid = out.str();
 
-            status = io_ctx->read(blob_oid, read_buf, read_len, blob_offset);
+            status = io_ctx_->read(blob_oid, read_buf, read_len, blob_offset);
 
             if (status < 0) {
                 rodsLog(LOG_ERROR, "Couldn't read object '%s' - error: %d", blob_oid.c_str(), status);
@@ -738,20 +697,14 @@ extern "C" {
         std::string oid = fop->physical_path();
         int fd = fop->file_descriptor();
 
-        librados::IoCtx* io_ctx;
-
-        propmap_guard_.lock();
-        irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
-        if (e.code() == KEY_NOT_FOUND) {
-            propmap_guard_.unlock();
-            // ioctx was created in open()
+        if (not init_rados_ctx(_ctx.prop_map())) {
             rodsLog(LOG_ERROR, "IRADOS_DEBUG %s - %s - no IoCtx available", __func__, oid.c_str());
             result.code(PLUGIN_ERROR);
             return result;
-        }
-
+        } 
+        
+        propmap_guard_.lock();
         uint64_t write_ptr = fd_offsets_[fd];
-
         propmap_guard_.unlock();
 
         // each irods file is split into multiple 4mb blobs that are stored in rados.
@@ -780,7 +733,7 @@ extern "C" {
             }
             std::string blob_oid = out.str();
 
-            int status = io_ctx->write(blob_oid, write_buf, write_len, blob_offset);
+            int status = io_ctx_->write(blob_oid, write_buf, write_len, blob_offset);
             
             if (status < 0) {
                 rodsLog(LOG_ERROR, "Couldn't write object '%s' - error: %d", oid.c_str(), status);
@@ -842,6 +795,7 @@ extern "C" {
         std::string oid = fop->physical_path();
         int fd = fop->file_descriptor();
         
+
         propmap_guard_.lock();
         
         int fd_cnt = oids_open_fds_cnt_[oid];
@@ -874,16 +828,7 @@ extern "C" {
                 _ctx.prop_map().get < uint64_t > ("SIZE_" + oid, max_file_size);
 
                 // this was the last fd for the file. now persist, num_blobs and file_size to the base oid object.
-                librados::IoCtx* io_ctx;
-                irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
                 propmap_guard_.unlock();
-
-                if (e.code() == KEY_NOT_FOUND) {
-                    // ioctx was created in open()
-                    rodsLog(LOG_ERROR, "IRADOS_DEBUG %s - %s - no IoCtx available", __func__, oid.c_str());
-                    result.code(PLUGIN_ERROR);
-                    return result;
-                }
 
                 int r;           
                 std::stringstream ss;
@@ -891,7 +836,7 @@ extern "C" {
                 librados::bufferlist xfilesize;
                 ss << max_file_size;
                 xfilesize.append(ss.str().c_str());
-                r = io_ctx->setxattr(oid, "FILE_SIZE", xfilesize);
+                r = io_ctx_->setxattr(oid, "FILE_SIZE", xfilesize);
                 if (r > 0) {
                     rodsLog(LOG_ERROR, "IRADOS_DEBUG %s - %s - error during IoCtx.setxattr()", __func__, oid.c_str());
                     result.code(PLUGIN_ERROR);
@@ -903,7 +848,7 @@ extern "C" {
                 ss << num_blobs;
                 librados::bufferlist xnumblobs;
                 xnumblobs.append(ss.str().c_str());
-                r = io_ctx->setxattr(oid, "NUM_BLOBS", xnumblobs);
+                r = io_ctx_->setxattr(oid, "NUM_BLOBS", xnumblobs);
                 if (r > 0) {
                     rodsLog(LOG_ERROR, "IRADOS_DEBUG %s - %s - error during IoCtx.setxattr()", __func__, oid.c_str());
                     result.code(PLUGIN_ERROR);
@@ -915,7 +860,7 @@ extern "C" {
                 ss << RADOS_BLOB_SIZE;
                 librados::bufferlist xblobsize;
                 xblobsize.append(ss.str().c_str());
-                r = io_ctx->setxattr(oid, "BLOB_SIZE", xblobsize);
+                r = io_ctx_->setxattr(oid, "BLOB_SIZE", xblobsize);
                 if (r > 0) {
                     rodsLog(LOG_ERROR, "IRADOS_DEBUG %s - %s - error during IoCtx.setxattr()", __func__, oid.c_str());
                     result.code(PLUGIN_ERROR);
@@ -965,39 +910,15 @@ extern "C" {
          fop->physical_path().c_str());
 #endif
 
-        librados::IoCtx* io_ctx;
-        irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
-
-        if (e.code() == KEY_NOT_FOUND) {
-
-            #ifdef IRADOS_DEBUG
-                int instance_id = 0;
-                _ctx.prop_map().get < int> ("instance_id", instance_id);
-
-                rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s requires new IoCtx - %d", __func__, instance_id);
-            #endif
-     
-            if (not connect_rados_cluster(_ctx.prop_map())) {
-                rodsLog(LOG_ERROR, "irados: cannot connect to cluster.");
-                result.code(PLUGIN_ERROR);
-                return result;
-            }
-            
-            io_ctx = new librados::IoCtx();
-            int ret = rados_cluster_->ioctx_create(pool_name_.c_str(), *io_ctx);
-            if (ret < 0) {
-                std::cerr << "Couldn't set up ioctx! error " << ret
-                        << std::endl;
-                result.code(PLUGIN_ERROR);
-                return result;
-            }
-            
-            _ctx.prop_map().set<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
-        }
+        if (not init_rados_ctx(_ctx.prop_map())) {
+            rodsLog(LOG_ERROR, "IRADOS_DEBUG %s - %s - no IoCtx available", __func__, oid.c_str());
+            result.code(PLUGIN_ERROR);
+            return result;
+        } 
 
         // how many blobs do we have?
         librados::bufferlist bl;
-        int r = io_ctx->getxattr(oid, "NUM_BLOBS", bl);
+        int r = io_ctx_->getxattr(oid, "NUM_BLOBS", bl);
         
         if (r < 0) {
             rodsLog(LOG_ERROR, "IRADOS_DEBUG %s -> oid: %s io_ctx->getxattr returned: %d", __func__, oid.c_str(), r);
@@ -1022,7 +943,7 @@ extern "C" {
             ss.str("");
             ss.clear();
             
-            status = io_ctx->remove(blob_oid);
+            status = io_ctx_->remove(blob_oid);
             if (status != 0) {
                 rodsLog(LOG_ERROR, "IRADOS_DEBUG %s -> oid: %s io_ctx->remove(%s) returned: %d", __func__, oid.c_str(), blob_oid.c_str(), status);
             }
@@ -1073,10 +994,8 @@ extern "C" {
                 oid.c_str());
         #endif
 
-        librados::IoCtx* io_ctx;
-
-        irods::error e = _ctx.prop_map().get<librados::IoCtx*>("CEPH_IOCTX", io_ctx);
-        if (e.code() == KEY_NOT_FOUND) {
+        if (not init_rados_ctx(_ctx.prop_map())) {
+            rodsLog(LOG_ERROR, "irados: cannot connect to cluster.");
             result.code(PLUGIN_ERROR);
             return result;
         }
@@ -1084,10 +1003,10 @@ extern "C" {
         uint64_t psize;
         time_t pmtime;
 
-        int status = io_ctx->stat(oid, &psize, &pmtime);
+        int status = io_ctx_->stat(oid, &psize, &pmtime);
 
         librados::bufferlist xfilesize;
-        int r = io_ctx->getxattr(oid, "FILE_SIZE", xfilesize);
+        int r = io_ctx_->getxattr(oid, "FILE_SIZE", xfilesize);
 
         if (r < 0) {
             rodsLog(LOG_ERROR, "IRADOS_DEBUG %s (%s) -> oid: %s io_ctx->getxattr(FILE_SIZE) returned: %d",
