@@ -76,7 +76,7 @@
 
 
 // switches to turn on some debugging infos and verbose log output
-// #define IRADOS_DEBUG
+#define IRADOS_DEBUG
 // #define IRADOS_TIME
 
 
@@ -383,6 +383,31 @@ extern "C" {
         int fd = get_next_fd();
         fop->file_descriptor(fd);
                 
+
+        int flags = fop->flags();
+
+        if (flags & O_RDONLY) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_RDONLY", fop->physical_path().c_str());
+        }
+        if (flags & O_WRONLY) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_WRONLY", fop->physical_path().c_str());
+        }
+        if (flags & O_RDWR) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_RDWR", fop->physical_path().c_str());
+        }
+        if (flags & O_TRUNC) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_TRUNC", fop->physical_path().c_str());
+        }
+        if (flags & O_APPEND) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_APPEND", fop->physical_path().c_str());
+        }
+        if (flags & O_CREAT) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_CREAT", fop->physical_path().c_str());
+        }
+        if (flags & O_LARGEFILE) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_LARGEFILE", fop->physical_path().c_str());
+        }
+
         // creates and sets an initial seek ptr for the current fd.
         // _ctx.prop_map().set < uint64_t > ("OFFSET_PTR_" + fd, 0);
         fd_offsets_[fd] = 0;
@@ -396,8 +421,14 @@ extern "C" {
             num_open_fds_++;
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s created: %s - (instance: %d, fd: %d) open fds: %d",
-             __func__, oid.c_str(), instance_id, fd, num_open_fds_);
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) created: %s with flags: %d - (instance: %d, fd: %d) open fds: %d",
+            __func__,
+            pool_name_.c_str(),
+            oid.c_str(),
+            flags,
+            instance_id,
+            fd, 
+            num_open_fds_);
         #endif
 
         propmap_guard_.unlock();
@@ -456,6 +487,30 @@ extern "C" {
         irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string oid = fop->physical_path();
 
+        int flags = fop->flags();
+
+         if (flags & O_RDONLY) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_RDONLY", fop->physical_path().c_str());
+        }
+        if (flags & O_WRONLY) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_WRONLY", fop->physical_path().c_str());
+        }
+        if (flags & O_RDWR) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_RDWR", fop->physical_path().c_str());
+        }
+        if (flags & O_TRUNC) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_TRUNC", fop->physical_path().c_str());
+        }
+        if (flags & O_APPEND) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_APPEND", fop->physical_path().c_str());
+        }
+        if (flags & O_CREAT) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_CREAT", fop->physical_path().c_str());
+        }
+        if (flags & O_LARGEFILE) {
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG create FLAGS path: %s has O_LARGEFILE", fop->physical_path().c_str());
+        }
+
         // test if the oid is a unique id. We have to get a uuid here.
         if (oid.find("/") != std::string::npos) {
             result.code(FILE_OPEN_ERR);
@@ -463,7 +518,13 @@ extern "C" {
         }
 
 #ifdef IRADOS_DEBUG
-        rodsLog(LOG_NOTICE, "IRADOS_DEBUG OPEN called on oid: %s" , oid.c_str());
+        rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) called on oid: %s for path: %s with flags: %d",
+            __func__,
+            pool_name_.c_str(),
+            oid.c_str(),
+            fop->physical_path().c_str(),
+            flags
+            );
 #endif
         // create rados connection context
         librados::IoCtx* io_ctx;
@@ -474,7 +535,7 @@ extern "C" {
             propmap_guard_.unlock();
 
 #ifdef IRADOS_DEBUG
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s open creates new io_ctx.", __func__);
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) open creates new io_ctx.", __func__, pool_name_.c_str());
 #endif
             if (not connect_rados_cluster(_ctx.prop_map())) {
                 rodsLog(LOG_ERROR, "irados: cannot connect to cluster.");
@@ -505,17 +566,24 @@ extern "C" {
 
         if (cnt == 1) {
             // NOTE: This must only happen, if this fs is the first for the oid.
-            int r;
-            librados::bufferlist obj_file_size;
-            r = io_ctx->getxattr(oid, "FILE_SIZE", obj_file_size);
+
+            librados::bufferlist xfilesize;
+            int r = io_ctx->getxattr(oid, "FILE_SIZE", xfilesize);
+
             if (r < 0) {
-                rodsLog(LOG_ERROR, "irados: cannot read xattr for oid:%s error %d",oid.c_str(), r);
+                rodsLog(LOG_ERROR, "IRADOS_DEBUG %s (%s) -> oid: %s io_ctx->getxattr(FILE_SIZE) returned: %d",
+                    __func__,
+                    pool_name_.c_str(),
+                    oid.c_str(),
+                    r);
                 result.code(PLUGIN_ERROR);
                 return result;
-            } else {
-                uint64_t fs = strtoull(obj_file_size.c_str(), NULL, 0); 
-                _ctx.prop_map().set < uint64_t > ("SIZE_" + oid, fs);            
             }
+            else {
+                uint64_t file_size = strtoul(xfilesize.c_str(), NULL, 0);
+                _ctx.prop_map().set<uint64_t>("SIZE_" + oid, file_size);
+            }
+            
 
         }
         // gets the next free fd for this plugin instance
@@ -530,8 +598,15 @@ extern "C" {
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
             std::string lid = fop->logical_path();
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s opened: oid: %s logical: %s - (instance: %d, fd: %d) open fds: %d | on file %d",
-             __func__, oid.c_str(), lid.c_str(), instance_id, fd, num_open_fds_, oids_open_fds_cnt_[oid]);
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) opened: oid: %s logical: %s - (instance: %d, fd: %d) open fds: %d | on file %d",
+                __func__,
+                pool_name_.c_str(),
+                oid.c_str(),
+                lid.c_str(),
+                instance_id,
+                fd,
+                num_open_fds_,
+                oids_open_fds_cnt_[oid]);
         #endif
         
         propmap_guard_.unlock();
@@ -587,8 +662,8 @@ extern "C" {
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
 
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s ReadRequest: from %s off: %lu, len: %d - (instance: %d, fd: %d)",
-                __func__, oid.c_str(), read_ptr, _len, instance_id, fd);
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) ReadRequest: from %s off: %lu, len: %d - (instance: %d, fd: %d)",
+                __func__, pool_name_.c_str(), oid.c_str(), read_ptr, _len, instance_id, fd);
         #endif
         
         uint64_t bytes_read = 0;
@@ -627,8 +702,9 @@ extern "C" {
             bytes_read += status;
 
 #ifdef IRADOS_DEBUG
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s ReadPart: from %s blob_id: %d, blob_offset: %lu, read: %lu, rados_read status: %d, (fd: %d)",
-                    __func__, 
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) ReadPart: from %s blob_id: %d, blob_offset: %lu, read: %lu, rados_read status: %d, (fd: %d)",
+                    __func__,
+                    pool_name_.c_str(),
                     blob_oid.c_str(),
                     blob_id,
                     blob_offset,
@@ -712,8 +788,9 @@ extern "C" {
                 return result;
             }
             #ifdef IRADOS_DEBUG
-                rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s to %s blob_id: %d, blob_offset: %lu, write_len: %lu, rados_write_status: %d, (fd: %d)",
+                rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) to %s blob_id: %d, blob_offset: %lu, write_len: %lu, rados_write_status: %d, (fd: %d)",
                     __func__, 
+                    pool_name_.c_str(),
                     blob_oid.c_str(),
                     blob_id,
                     blob_offset,
@@ -783,7 +860,11 @@ extern "C" {
                 propmap_guard_.unlock();
             } else {
                 #ifdef IRADOS_DEBUG
-                    rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s - %s - fd_cnt: %d Writing metadata for dirty oid", __func__, oid.c_str(), fd_cnt);
+                    rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) - %s - fd_cnt: %d Writing metadata for dirty oid",
+                        __func__,
+                        pool_name_.c_str(),
+                        oid.c_str(),
+                        fd_cnt);
                 #endif
 
                 uint64_t num_blobs = 0;
@@ -843,7 +924,15 @@ extern "C" {
                 #ifdef IRADOS_DEBUG
                     int instance_id = 0;
                     _ctx.prop_map().get <int> ("instance_id", instance_id);  
-                    rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s %s - closed blob: highest blob-id: %lu, size: %lu (instance: %d, fd: %d)", __func__, oid.c_str(), num_blobs, max_file_size, instance_id, fd, num_open_fds_);
+                    rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) %s - closed blob: highest blob-id: %lu, size: %lu (instance: %d, fd: %d)",
+                     __func__,
+                     pool_name_.c_str(),
+                     oid.c_str(),
+                     num_blobs,
+                     max_file_size,
+                     instance_id,
+                     fd,
+                     num_open_fds_);
                 #endif
             }   
         }
@@ -869,7 +958,11 @@ extern "C" {
         std::string oid = fop->physical_path();
 
 #ifdef IRADOS_DEBUG
-        rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s called on oid: %s with path: %s", __func__, oid.c_str(), fop->physical_path().c_str());
+        rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) called on oid: %s with path: %s",
+         __func__,
+         pool_name_.c_str(),
+         oid.c_str(),
+         fop->physical_path().c_str());
 #endif
 
         librados::IoCtx* io_ctx;
@@ -939,7 +1032,12 @@ extern "C" {
         #ifdef IRADOS_DEBUG
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s %s removed %d blobs %d", __func__, oid.c_str(), num_blobs, instance_id);
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) %s removed %d blobs %d", 
+                __func__,
+                pool_name_.c_str(),
+                oid.c_str(), 
+                num_blobs, 
+                instance_id);
         #endif
 
 #ifdef IRADOS_TIME
@@ -969,7 +1067,10 @@ extern "C" {
         #ifdef IRADOS_DEBUG
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s -> oid: %s", __func__, oid.c_str());
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) -> oid: %s",
+                __func__,
+                pool_name_.c_str(),
+                oid.c_str());
         #endif
 
         librados::IoCtx* io_ctx;
@@ -989,7 +1090,11 @@ extern "C" {
         int r = io_ctx->getxattr(oid, "FILE_SIZE", xfilesize);
 
         if (r < 0) {
-            rodsLog(LOG_ERROR, "IRADOS_DEBUG %s -> oid: %s io_ctx->getxattr(FILE_SIZE) returned: %d", __func__, oid.c_str(), r);
+            rodsLog(LOG_ERROR, "IRADOS_DEBUG %s (%s) -> oid: %s io_ctx->getxattr(FILE_SIZE) returned: %d",
+                __func__,
+                pool_name_.c_str(),
+                oid.c_str(),
+                r);
             result.code(PLUGIN_ERROR);
             return result;
         }
@@ -1002,7 +1107,14 @@ extern "C" {
 
          #ifdef IRADOS_DEBUG
             _ctx.prop_map().get < int > ("instance_id", instance_id);
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s -> status: %d, oid: %s stat got pmtime: %lu, size:%lu - %d", __func__, status, oid.c_str(), pmtime, file_size, instance_id);
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s)-> status: %d, oid: %s stat got pmtime: %lu, size:%lu - %d",
+                __func__,
+                pool_name_.c_str(),
+                status,
+                oid.c_str(),
+                pmtime,
+                file_size,
+                instance_id);
         #endif
 
         // result.code(status);
@@ -1032,7 +1144,13 @@ extern "C" {
         #ifdef IRADOS_DEBUG
             int instance_id = 0;
             _ctx.prop_map().get < int> ("instance_id", instance_id);
-            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s offset: %lu, whence: %d - (instance: %d, fd: %d)", __func__, _offset, _whence, instance_id, fd);
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s (%s) offset: %lu, whence: %d - (instance: %d, fd: %d)",
+            __func__,
+            pool_name_.c_str(),
+            _offset,
+            _whence,
+            instance_id,
+            fd);
         #endif
 
         return result;
