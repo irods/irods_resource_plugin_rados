@@ -1,4 +1,4 @@
-#include "libirados.hpp"
+// #include "libirados.hpp"
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -93,6 +93,13 @@
     #include <iostream>
 #endif
 
+// RADOS
+#include <rados/librados.hpp>
+
+struct rados_conn_t {
+    librados::Rados* cluster_;
+    librados::IoCtx* io_ctx_;
+};
 
 // 4MB blobs will provide best throughput
 const uint64_t RADOS_BLOB_SIZE = 4194304;
@@ -109,11 +116,14 @@ int num_open_fds_ = 0;
 
 int _last_valid_fd = 0;
 
+
+// store oid metadata between calls
 std::map<std::string, int> oids_open_fds_cnt_;
 std::map<std::string, bool> dirty_oids_;
 std::map<std::string, uint64_t> oid_max_file_sizes_;
 std::map<std::string, uint64_t> oid_num_blobs_; 
 
+// store file descriptor states between calls
 std::map<int, uint64_t> fd_offsets_;
 std::map<int, librados::IoCtx*> fd_contexts_;
 
@@ -132,7 +142,6 @@ std::string rand_uuid_string()
 }
 
 
-
 /**
  * Create the rados connection.
  * Is called before each rados operation.
@@ -147,15 +156,17 @@ librados::IoCtx* get_rados_ctx(const std::string context) {
     #endif
 
     rados_guard_.lock();
-      
-    struct rados_conn_t *rc = (rados_conn_t *) malloc(sizeof(struct rados_conn_t));
 
+    struct rados_conn_t *rc = rados_connections_[context];
+      
     if (rc != NULL) {
         rados_guard_.unlock();
         return rc->io_ctx_;
     }
 
     // we need to set up a new radosconnection:
+
+    rc = (rados_conn_t *) malloc(sizeof(struct rados_conn_t));
 
     std::string cluster_name = "ceph";
     std::string pool_name = "irods";
@@ -364,12 +375,12 @@ extern "C" {
         std::string context;
         _ctx.prop_map().get<std::string>(irods::RESOURCE_CONTEXT, context);
         
-
+        fop->physical_path(oid);
         // irods::error ret = irados_get_fsfreespace_plugin( _ctx );
         // if ( ( result = ASSERT_PASS( ret, "Error determining freespace on system." ) ).ok() ) {
         //     rodsLong_t file_size = fop->size();
         //     if ( ( result = ASSERT_ERROR( file_size < 0 || ret.code() >= file_size, USER_FILE_TOO_LARGE, "File size: %ld is greater than space left on device: %ld", file_size, ret.code() ) ).ok() ) {
-        //         fop->physical_path(oid);
+        //         
         //     } else {
         //         result.code( PLUGIN_ERROR );
         //         return result;
@@ -399,6 +410,8 @@ extern "C" {
         oids_open_fds_cnt_[oid] = 1;
         dirty_oids_[oid] = true;
 
+        propmap_guard_.unlock();
+
         #ifdef IRADOS_DEBUG
             int flags = fop->flags();
             num_open_fds_++;
@@ -412,10 +425,6 @@ extern "C" {
             context.c_str());
         #endif
 
-        propmap_guard_.unlock();
-
-        rodsLog(LOG_NOTICE, "ALIIIIIIIIIVE");
-            
         return result;
     } // irados_create_plugin
 
@@ -568,7 +577,6 @@ extern "C" {
         //     }
 
         // }
-        // gets the next free fd for this plugin instance
      
         return result;
 
@@ -779,7 +787,7 @@ extern "C" {
     irods::error irados_close_plugin(
         irods::resource_plugin_context& _ctx ) {
         #ifdef IRADOS_DEBUG
-            rodsLog(LOG_DEBUG, "IRADOS_DEBUG %s", __func__);
+            rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s", __func__);
         #endif
         irods::error result = SUCCESS();
         irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object>(_ctx.fco());
@@ -868,7 +876,7 @@ extern "C" {
                 #endif
             }   
         }
-         
+
         return result;
     } // irados_close_plugin
 
@@ -952,13 +960,6 @@ extern "C" {
         struct stat* _statbuf ) {
         irods::error result = SUCCESS();
 
-#ifdef IRADOS_TIME
-        timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = 0;
-        clock_settime(CLOCK_PROCESS_CPUTIME_ID, &ts);
-#endif
-
         irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string oid = fop->physical_path();
         
@@ -1012,10 +1013,7 @@ extern "C" {
         #endif
 
         // result.code(status);
-#ifdef IRADOS_TIME
-        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
-        std::cout << "IRADOS_TIME: stat " << ts.tv_sec << " " << ts.tv_nsec << std::endl;
-#endif 
+
 
         return result;
     } // irados_stat_plugin
