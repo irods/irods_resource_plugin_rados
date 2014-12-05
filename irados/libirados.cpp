@@ -657,7 +657,11 @@ extern "C" {
                     result.code(UNIX_FILE_OPEN_ERR);
                     return result;
             }
-       
+        
+            if (status == 0) {
+                // no bytes read, so the file might have ended.
+                break;
+            }
             
             char* p = (char*) _buf;
             p += bytes_read;
