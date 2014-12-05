@@ -74,24 +74,13 @@
 #include <stdlib.h>
 
 
-
 // switches to turn on some debugging infos and verbose log output
-#define IRADOS_DEBUG
-// #define IRADOS_TIME
-
+//#define IRADOS_DEBUG
 
 #ifdef IRADOS_DEBUG
-    #include <time.h>
-    #include "irods_stacktrace.hpp"
     #include <unistd.h>
 #endif
 
-
-
-#ifdef IRADOS_TIME
-    #include <time.h>
-    #include <iostream>
-#endif
 
 // RADOS
 #include <rados/librados.hpp>
@@ -600,10 +589,11 @@ extern "C" {
         
         uint64_t read_ptr = fd_offsets_[fd];
         librados::IoCtx* io_ctx = fd_contexts_[fd];
+        
+
         // make sure to not read out of the bounds of this object.
         // uint64_t max_file_size = 0;
         // _ctx.prop_map().get < uint64_t > ("SIZE_" + oid, max_file_size);
-
         
         propmap_guard_.unlock();
 
