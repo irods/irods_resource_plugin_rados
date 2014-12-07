@@ -91,3 +91,19 @@ Then upload files with:
 ```
 iput -R radosResc files/
 ```
+
+## Scale out
+
+All traffic from clients to rados is routed through the resource server. If it becomes a bottleneck, just add more!
+
+```
+iadmin mkresc rrirados roundrobin
+iadmin mkresc child_01 irados rs-01.local:/ "ceph|poolname|client.irods"
+iadmin mkresc child_02 irados rs-02.local:/ "ceph|poolname|client.irods"
+...
+iadmin addchildtoresc rrirados child_01
+iadmin addchildtoresc rrirados child_02
+...
+```
+
+The `rrirados` will then distribute the load over all resource servers.
