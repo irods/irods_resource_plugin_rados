@@ -83,7 +83,7 @@ The cluster_name, pool_name, and user_name to connect to a rados pool are config
 
 If no context like :/tmp/ is provided, the plugin does not work correctly. Nevertheless, the context is not used at all.
 ```
-iadmin mkresc radosResc irados rs-host:/ "cluster_name|pool_name|client_name
+iadmin mkresc radosResc irados rs-host:/ "cluster_name|pool_name|client_name"
 ```
 
 Then upload files with:
