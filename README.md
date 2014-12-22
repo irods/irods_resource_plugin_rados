@@ -107,3 +107,7 @@ iadmin addchildtoresc rrirados child_02
 ```
 
 The `rrirados` will then distribute the load over all resource servers.
+
+## Commercial Support
+
+If you require assistance on your project(s), please contact us: info@everb.it
