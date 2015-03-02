@@ -67,7 +67,8 @@ ceph auth get-or-create client.irods osd 'allow rw pool=irods' mon 'allow r' > /
 Copy the key from the newly created keyring and create the ceph config files on the resource server.
 You can have multiple pools with different clients & capabilities.
 
-edit: /etc/irods/irados.config
+`touch /etc/irods/irados.config && chown irods: /etc/irods/irados.config && chmod 400 /etc/irods/irados.config`
+
 ```
 [global]
     mon host = ceph-mon
