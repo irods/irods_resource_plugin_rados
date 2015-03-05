@@ -49,7 +49,7 @@ sudo apt-get install -f
 Then checkout, build and install the plugin on the resource server:
 
 ```
-git clone https://github.com/meatz/irods_resource_plugin_rados.git
+git clone https://github.com/irods/irods_resource_plugin_rados.git
 cd irods_resource_plugin_rados
 make
 make install
