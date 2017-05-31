@@ -4,7 +4,7 @@ SRCS = libirados.cpp
 
 HEADERS = 
 
-EXTRALIBS = /usr/lib/irods/libirods_client.a -lrados 
+EXTRALIBS = /usr/lib/libirods_client.a -lrados
 
 EXTRAINCS = 
 #EXTRAINCS = -I/usr/include/rados 
