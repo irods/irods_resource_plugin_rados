@@ -50,9 +50,11 @@ Then checkout, build and install the plugin on the resource server:
 
 ```
 git clone https://github.com/irods/irods_resource_plugin_rados.git
-cd irods_resource_plugin_rados
+mkdir build_irods_resource_plugin_rados
+cd build_irods_resource_plugin_rados
+cmake ../irods_resource_plugin_rados
 make
-make install
+sudo make install
 ```
 
 ## Setup
