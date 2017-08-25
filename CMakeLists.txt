@@ -45,7 +45,7 @@ set(
 
 set(
   PLUGIN
-  irods_resource_plugin_rados
+  irados
   )
 
   add_library(
@@ -85,7 +85,7 @@ install(
   TARGETS
   ${PLUGIN}
   LIBRARY
-    DESTINATION usr/lib/irods/plugins/resource
+    DESTINATION usr/lib/irods/plugins/resources
   )
 
 set(CPACK_PACKAGE_FILE_NAME "irods-resource-plugin-rados-${IRODS_VERSION}-${IRODS_LINUX_DISTRIBUTION_NAME}${IRODS_LINUX_DISTRIBUTION_VERSION_MAJOR}-${CMAKE_SYSTEM_PROCESSOR}")

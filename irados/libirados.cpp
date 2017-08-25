@@ -181,7 +181,7 @@ rados_ioctx_t* get_rados_ctx(const std::string context) {
     int ret;
     /* Initialize the cluster handle */
     {
-        ret = rados_create2(&rc->cluster_, user_name.c_str(), cluster_name.c_str(), flags);
+        ret = rados_create2(&rc->cluster_, cluster_name.c_str(), user_name.c_str(), flags);
         if (ret < 0) {
             rodsLog(LOG_ERROR, "Couldn't initialize the cluster handle! error %d", ret);
             return NULL;
@@ -1370,6 +1370,7 @@ int get_next_fd() {
     //    defined above.  for resource plugins these call names are standardized
     //    as used by the irods facing interface defined in
     //    server/drivers/src/fileDriver.c
+extern "C"
 irods::resource* plugin_factory(const std::string& _inst_name,
         const std::string& _context) {
 
