@@ -647,7 +647,7 @@ int get_next_fd() {
 #ifdef IRADOS_DEBUG
             rodsLog(LOG_NOTICE, "IRADOS_DEBUG %s ReadPart: from %s blob_id: %d, blob_offset: %lu, read: %lu, rados_read status: %d, (fd: %d)",
                     __func__,
-                    blob_oid.c_str(),
+                    blob_oid.str().c_str(),
                     blob_id,
                     blob_offset,
                     read_len,
