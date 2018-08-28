@@ -566,8 +566,8 @@ int get_next_fd() {
     // interface for POSIX Read
     irods::error irados_read_plugin(
         irods::plugin_context& _ctx,
-        void* _buf,
-        int _len) {
+        const void* _buf,
+        const int _len) {
         irods::error result = SUCCESS();
 
         irods::file_object_ptr fop = boost::dynamic_pointer_cast< irods::file_object>(_ctx.fco());
@@ -671,8 +671,8 @@ int get_next_fd() {
     // interface for POSIX Write
     irods::error irados_write_plugin(
         irods::plugin_context& _ctx,
-        void* _buf,
-        int _len) {
+        const void* _buf,
+        const int _len) {
 
         irods::error result = SUCCESS();
 
