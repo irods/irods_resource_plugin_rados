@@ -566,7 +566,7 @@ int get_next_fd() {
     // interface for POSIX Read
     irods::error irados_read_plugin(
         irods::plugin_context& _ctx,
-        const void* _buf,
+        void* _buf,
         const int _len) {
         irods::error result = SUCCESS();
 
@@ -1386,7 +1386,7 @@ irods::resource* plugin_factory(const std::string& _inst_name,
     resc->add_operation(irods::RESOURCE_OP_CREATE, &irados_create_plugin);
     resc->add_operation(irods::RESOURCE_OP_OPEN, &irados_open_plugin);
     resc->add_operation<void*,int>(irods::RESOURCE_OP_READ, std::function<irods::error(irods::plugin_context&,void*,int)>(irados_read_plugin));
-    resc->add_operation<void*,int>(irods::RESOURCE_OP_WRITE, std::function<irods::error(irods::plugin_context&,void*,int)>(irados_write_plugin));
+    resc->add_operation<const void*,int>(irods::RESOURCE_OP_WRITE, std::function<irods::error(irods::plugin_context&,const void*,int)>(irados_write_plugin));
     resc->add_operation(irods::RESOURCE_OP_CLOSE, &irados_close_plugin);
     resc->add_operation(irods::RESOURCE_OP_UNLINK, &irados_unlink_plugin);
     resc->add_operation<struct stat*>(irods::RESOURCE_OP_STAT, std::function<irods::error(irods::plugin_context&, struct stat*)>(irados_stat_plugin));
