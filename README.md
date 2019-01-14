@@ -6,7 +6,7 @@ First presentation at iRODS user group meeting 2014 / Boston, MA - http://www.sl
 
 ## TL;DR
 
-- `iadmin mkresc radosResc irados rs-host:/ "cluster_name|pool_name|client_name"`
+- `iadmin mkresc radosResc irados rs-host:/path "cluster_name|pool_name|client_name"`
 - No superfluous cache/archive tier
 - Parallel, direct, high performance access to your data!
 - Multiple rados pools from one resource server
@@ -45,6 +45,14 @@ sudo apt-get install uuid-dev libssl-dev build-essential
 sudo apt-get install librados2 librados-dev
 sudo apt-get install -f
 ```
+Prerequisites for CentOS:
+
+Follow the steps at http://docs.ceph.com/docs/master/start/quick-start-preflight/#rhel-centos to add the official ceph repositories that match your running cluster's version.
+
+```
+yum install librados2 librados2-devel libuuid-devel openssl-devel cmake3 irods-devel irods-externals-clang3.8-0
+yum groups install "Development Tools"
+```
 
 Then checkout, build and install the plugin on the resource server:
 
@@ -52,7 +60,7 @@ Then checkout, build and install the plugin on the resource server:
 git clone https://github.com/irods/irods_resource_plugin_rados.git
 mkdir build_irods_resource_plugin_rados
 cd build_irods_resource_plugin_rados
-cmake ../irods_resource_plugin_rados
+cmake ../irods_resource_plugin_rados # or cmake3 on CentOS
 make
 sudo make install
 ```
@@ -62,14 +70,16 @@ sudo make install
 Create an irods pool on ceph, i.e.
 
 ```
-ceph osd pool create irods
+ceph osd pool create irods 128 
 ceph auth get-or-create client.irods osd 'allow rw pool=irods' mon 'allow r' > /etc/ceph/client.irods.keyring
 ```
+
+N.B: 128 is the "Placement Group", see http://docs.ceph.com/docs/mimic/rados/operations/placement-groups/
 
 Copy the key from the newly created keyring and create the ceph config files on the resource server.
 You can have multiple pools with different clients & capabilities.
 
-`touch /etc/irods/irados.config && chown irods: /etc/irods/irados.config && chmod 400 /etc/irods/irados.config`
+`touch /etc/irods/irados.config && chown irods: /etc/irods/irados.config && chmod 600 /etc/irods/irados.config`
 
 ```
 [global]
@@ -86,7 +96,7 @@ The cluster_name, pool_name, and user_name to connect to a rados pool are config
 
 If no context like :/tmp/ is provided, the plugin does not work correctly. Nevertheless, the context is not used at all.
 ```
-iadmin mkresc radosResc irados rs-host:/ "cluster_name|pool_name|client_name"
+iadmin mkresc radosResc irados rs-host:/path "cluster_name|pool_name|client_name"
 ```
 
 Then upload files with:
@@ -101,8 +111,8 @@ All traffic from clients to rados is routed through the resource server. If it b
 
 ```
 iadmin mkresc radosRandomResc random
-iadmin mkresc child_01 irados rs-01.local:/ "ceph|poolname|client.irods"
-iadmin mkresc child_02 irados rs-02.local:/ "ceph|poolname|client.irods"
+iadmin mkresc child_01 irados rs-01.local:/path "ceph|poolname|client.irods"
+iadmin mkresc child_02 irados rs-02.local:/path "ceph|poolname|client.irods"
 ...
 iadmin addchildtoresc radosRandomResc child_01
 iadmin addchildtoresc radosRandomResc child_02
