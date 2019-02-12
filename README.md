@@ -54,16 +54,17 @@ yum install librados2 librados2-devel libuuid-devel openssl-devel cmake3 irods-d
 yum groups install "Development Tools"
 ```
 
-Then checkout, build and install the plugin on the resource server:
+Then checkout and build the plugin package on the resource server:
 
 ```
 git clone https://github.com/irods/irods_resource_plugin_rados.git
 mkdir build_irods_resource_plugin_rados
 cd build_irods_resource_plugin_rados
 cmake ../irods_resource_plugin_rados # or cmake3 on CentOS
-make
-sudo make install
+make package
 ```
+
+Then install the newly created package via `dpkg/gdebi` or `yum`.
 
 ## Setup
 
