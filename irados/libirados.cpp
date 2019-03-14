@@ -217,12 +217,8 @@ rados_ioctx_t* get_rados_ctx(const std::string context) {
     rados_ioctx_create(rc->cluster_, pool_name.c_str(), &rc->io_ctx_);
 
     if (ret < 0) {
-        rodsLog(LOG_ERROR, "irados: cannot setup ioctx for cluster: error %d", ret);
-        return NULL;
-    }
-
-    if (ret < 0) {
         rados_guard_.unlock();
+        rodsLog(LOG_ERROR, "irados: cannot setup ioctx for cluster: error %d", ret);
         return NULL;
     }
 
@@ -627,7 +623,9 @@ int get_next_fd() {
 
             char* read_buf = (char*) _buf;
             read_buf += bytes_read;
+            propmap_guard_.lock();
             status = rados_read(io_ctx, blob_oid.str().c_str(), read_buf, read_len, blob_offset);
+            propmap_guard_.unlock();
 
             if (status < 0) {
                 rodsLog(LOG_ERROR, "Couldn't read object '%s' - error: %d",
@@ -709,7 +707,9 @@ int get_next_fd() {
             }
             std::string blob_oid = out.str();
 
+            propmap_guard_.lock();
             int status = rados_write(io_ctx, blob_oid.c_str(), write_buf, write_len, blob_offset);
+            propmap_guard_.unlock();
 
             if (status < 0) {
                 rodsLog(LOG_ERROR, "Couldn't write object '%s' - error: %d", oid.c_str(), status);
@@ -772,10 +772,9 @@ int get_next_fd() {
         std::string oid = fop->physical_path();
         int fd = fop->file_descriptor();
 
-        rados_ioctx_t io_ctx = fd_contexts_[fd];
-
-
         propmap_guard_.lock();
+
+        rados_ioctx_t io_ctx = fd_contexts_[fd];
 
         int fd_cnt = oids_open_fds_cnt_[oid];
 
